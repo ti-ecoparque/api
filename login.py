@@ -8,16 +8,30 @@ if "conectado" not in st.session_state:
     st.session_state.token = None
     st.session_state.usuario_email = None
 
-# 2. Captura automática do IP público real utilizando uma requisição leve via Python
-def buscar_ip_publico():
+# 2. Função segura com cache para buscar o IP de internet real (evita quebrar a tela com HTML)
+@st.cache_data(ttl=3600) # Guarda o IP por 1 hora para não ficar refazendo a requisição a cada clique
+def buscar_ip_publico_real():
     try:
-        # Consulta um serviço público e rápido para descobrir o IP de internet
-        return requests.get("https://ipify.org", timeout=3).text.strip()
+        # O icanhazip retorna APENAS o IP em formato de texto limpo
+        resposta = requests.get("https://icanhazip.com", timeout=3)
+        if resposta.status_code == 200:
+            return resposta.text.strip()
     except Exception:
-        # Se falhar por timeout, tenta ler o cabeçalho do Streamlit como plano B
-        return st.context.ip_address or "127.0.0.1"
+        pass
+    
+    # Se o serviço falhar, tenta o ipify com o formato JSON explícito para não trazer HTML
+    try:
+        resposta = requests.get("https://ipify.org", timeout=3)
+        if resposta.status_code == 200:
+            return resposta.json().get("ip")
+    except Exception:
+        pass
+        
+    # Último caso (Fallback local)
+    return st.context.ip_address or "127.0.0.1"
 
-ip_usuario = buscar_ip_publico()
+# Executa a função para obter o IP limpo
+ip_usuario = buscar_ip_publico_real()
 
 # 3. Carrega os dados fixos estruturais do arquivo config.json
 try:
