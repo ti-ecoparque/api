@@ -8,9 +8,16 @@ if "conectado" not in st.session_state:
     st.session_state.token = None
     st.session_state.usuario_email = None
 
-# 2. Captura automática do IP do usuário utilizando a API nativa st.context
-# Quando rodar localmente (localhost), ele pode retornar None ou 127.0.0.1
-ip_usuario = st.context.ip_address or "127.0.0.1"
+# 2. Captura automática do IP público real utilizando uma requisição leve via Python
+def buscar_ip_publico():
+    try:
+        # Consulta um serviço público e rápido para descobrir o IP de internet
+        return requests.get("https://ipify.org", timeout=3).text.strip()
+    except Exception:
+        # Se falhar por timeout, tenta ler o cabeçalho do Streamlit como plano B
+        return st.context.ip_address or "127.0.0.1"
+
+ip_usuario = buscar_ip_publico()
 
 # 3. Carrega os dados fixos estruturais do arquivo config.json
 try:
@@ -34,7 +41,7 @@ if not st.session_state.conectado:
 
     if st.button("Entrar no Sistema", use_container_width=True):
         if email_input and senha_input:
-            # Monta o payload unindo dados fixos, digitados e o IP do contexto
+            # Monta o payload unindo dados fixos, digitados e o IP correto
             payload = {
                 "email": email_input,
                 "password": senha_input,
@@ -49,7 +56,7 @@ if not st.session_state.conectado:
                     if response.status_code == 200:
                         dados_resposta = response.json()
                         
-                        # Captura o Bearer Token (ajuste 'token' para o nome exato que a API retorna)
+                        # Captura o Bearer Token
                         bearer_token = dados_resposta.get("token") or dados_resposta.get("accessToken")
                         
                         if bearer_token:
