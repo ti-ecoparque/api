@@ -14,16 +14,14 @@ if "conectado" not in st.session_state:
     st.session_state.token = None
     st.session_state.usuario_email = None
 
-from pathlib import Path
 
 # 1. Captura o caminho absoluto da pasta onde este arquivo login.py está rodando
 BASE_DIR = Path(__file__).parent.resolve()
 
-# 2. DEFINIÇÃO DAS PÁGINAS UTILIZANDO CAMINHOS ABSOLUTOS DINÂMICOS
-# Isso garante o mapeamento correto no Windows local e no Linux do Streamlit Cloud
+# 2. DEFINIÇÃO DAS PÁGINAS CORRIGIDA (Apontando para dentro da pasta 'api' que está no GitHub)
 pagina_login = st.Page(str(BASE_DIR / "login.py"), title="Tela de Login", icon="🔑", default=True)
-pagina_le_rm = st.Page(str(BASE_DIR / "telas" / "le_rm.py"), title="Leitura de RMs", icon="📋")
-pagina_produtos = st.Page(str(BASE_DIR / "map" / "map_list_produtos.py"), title="Lista de Produtos", icon="📦")
+pagina_le_rm = st.Page(str(BASE_DIR / "api" / "telas" / "le_rm.py"), title="Leitura de RMs", icon="📋")
+pagina_produtos = st.Page(str(BASE_DIR / "api" / "map" / "map_list_produtos.py"), title="Lista de Produtos", icon="📦")
 
 # LÓGICA DE CONTROLE DE ACESSO
 if not st.session_state.conectado:
