@@ -3,6 +3,8 @@ import requests
 import json
 import os
 
+from pathlib import Path
+
 # Configuração inicial da página (Deve ser a primeira linha do script)
 st.set_page_config(page_title="Sistema Ecoparque", page_icon="🔐", layout="wide")
 
@@ -12,13 +14,16 @@ if "conectado" not in st.session_state:
     st.session_state.token = None
     st.session_state.usuario_email = None
 
-# No servidor, o diretório de execução atual conterá a pasta do repositório
-prefixo = "api/" if os.path.exists("api") else ""
+from pathlib import Path
 
-# 2. DEFINIÇÃO DAS PÁGINAS COM PREFIXO DINÂMICO
-pagina_login = st.Page(f"{prefixo}login.py", title="Tela de Login", icon="🔑", default=True)
-pagina_le_rm = st.Page(f"{prefixo}telas/le_rm.py", title="Leitura de RMs", icon="📋")
-pagina_produtos = st.Page(f"{prefixo}map/map_list_produtos.py", title="Lista de Produtos", icon="📦")
+# 1. Captura o caminho absoluto da pasta onde este arquivo login.py está rodando
+BASE_DIR = Path(__file__).parent.resolve()
+
+# 2. DEFINIÇÃO DAS PÁGINAS UTILIZANDO CAMINHOS ABSOLUTOS DINÂMICOS
+# Isso garante o mapeamento correto no Windows local e no Linux do Streamlit Cloud
+pagina_login = st.Page(str(BASE_DIR / "login.py"), title="Tela de Login", icon="🔑", default=True)
+pagina_le_rm = st.Page(str(BASE_DIR / "telas" / "le_rm.py"), title="Leitura de RMs", icon="📋")
+pagina_produtos = st.Page(str(BASE_DIR / "map" / "map_list_produtos.py"), title="Lista de Produtos", icon="📦")
 
 # LÓGICA DE CONTROLE DE ACESSO
 if not st.session_state.conectado:
