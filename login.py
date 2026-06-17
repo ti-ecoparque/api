@@ -8,13 +8,15 @@ if "conectado" not in st.session_state:
     st.session_state.token = None
     st.session_state.usuario_email = None
 
-# 2. Carrega todos os dados fixos estruturais do arquivo config.json (Incluindo o IP Fixo)
+# 2. Carrega todos os dados fixos estruturais do arquivo config.json
 try:
     with open("config.json", "r") as f:
         config = json.load(f)
     URL_LOGIN = config["url_login"]
     ENTERPRISE_ID = config["enterpriseId"]
-    IP_FIXO = config["ip"]  # Lendo o IP diretamente do seu config.json
+    # Captura a string de identificação que a API exige como obrigatória
+    ENTERPRISE_ID_STRING = config.get("enterpriseIdString", str(ENTERPRISE_ID))
+    IP_FIXO = config["ip"]
 except Exception as e:
     st.error("Erro crítico: Não foi possível ler as configurações do arquivo 'config.json'.")
     st.stop()
@@ -29,12 +31,13 @@ if not st.session_state.conectado:
 
     if st.button("Entrar no Sistema", use_container_width=True):
         if email_input and senha_input:
-            # Monta o payload unindo os dados digitados e os dados fixos do JSON
+            # 3. Monta o payload corrigido incluindo a chave EnterpriseIdString exigida pela API
             payload = {
                 "email": email_input,
                 "password": senha_input,
                 "enterpriseId": int(ENTERPRISE_ID),
-                "ip": str(IP_FIXO)  # Utiliza o IP estático do arquivo de configuração
+                "enterpriseIdString": str(ENTERPRISE_ID_STRING), # Campo adicionado para corrigir o Erro 400
+                "ip": str(IP_FIXO)
             }
 
             with st.spinner("Autenticando..."):
@@ -59,7 +62,7 @@ if not st.session_state.conectado:
                         else:
                             st.error("Sucesso na API, mas o campo de Token não foi localizado no JSON retornado.")
                     else:
-                        # Se der erro (ex: 400 ou 401), exibe os detalhes enviados e recebidos para ajuste rápido
+                        # Exibe os detalhes enviados e recebidos em caso de falha
                         st.error(f"Erro de Autenticação ({response.status_code})")
                         
                         with st.expander("Clique aqui para ver os detalhes técnicos do erro"):
