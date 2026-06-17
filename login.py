@@ -12,9 +12,9 @@ if "logado" not in st.session_state:
     st.session_state.usuario_email = None
 
 # 3. DEFINE AS PÁGINAS DO SISTEMA (Formato limpo e nativo do Streamlit)
-pagina_login = st.Page("app.py", title="Tela de Login", icon="🔑", default=True)
-pagina_le_rm = st.Page("pages/le_rm.py", title="Leitura de RMs", icon="📋")
-#pagina_produtos = st.Page("pages/map_list_produtos.py", title="Lista de Produtos", icon="📦")
+pagina_login = st.Page("login.py", title="Tela de Login", icon="🔑", default=True)
+pagina_le_rm = st.Page("telas/le_rm.py", title="Leitura de RMs", icon="📋")
+pagina_produtos = st.Page("map/map_list_produtos.py", title="Lista de Produtos", icon="📦")
 
 # 4. CONTROLE DE ACESSO SIMPLIFICADO
 # Se não estiver logado, a lista só tem a tela de login. Se estiver, libera as outras.
