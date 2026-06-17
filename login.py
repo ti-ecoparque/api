@@ -11,34 +11,24 @@ if "conectado" not in st.session_state:
     st.session_state.token = None
     st.session_state.usuario_email = None
 
-# 2. DEFINIÇÃO DAS PÁGINAS (Apontando para a nova pasta 'telas')
-# st.Page define o arquivo físico, o título na barra lateral e o ícone
-# 2. DEFINIÇÃO DAS PÁGINAS (Caminhos relativos corretos para o servidor)
+# 2. DEFINIÇÃO DAS PÁGINAS CORRIGIDA BASEADO NA IMAGEM
+# O login está na raiz, o le_rm na pasta 'telas' (minúsculo) e o produtos na pasta 'map'
 pagina_login = st.Page("login.py", title="Tela de Login", icon="🔑", default=True)
-pagina_le_rm = st.Page("telas/le_RM.py", title="Leitura de RMs", icon="📋")
-pagina_produtos = st.Page("telas/map_list_produtos.py", title="Lista de Produtos", icon="📦")
+pagina_le_rm = st.Page("telas/le_rm.py", title="Leitura de RMs", icon="📋")
+pagina_produtos = st.Page("map/map_list_produtos.py", title="Lista de Produtos", icon="📦")
 
-
-# ==========================================
-# LÓGICA DE CONTROLE DE ACESSO (O SEGREDO)
-# ==========================================
-# Se o usuário NÃO está conectado, ele só enxerga a página de login
+# LÓGICA DE CONTROLE DE ACESSO
 if not st.session_state.conectado:
     paginas_disponiveis = [pagina_login]
 else:
-    # Se ele ESTÁ conectado, liberamos as páginas de operação e ocultamos o login
     paginas_disponiveis = [pagina_le_rm, pagina_produtos]
 
-
 # 3. CRIA A NAVEGAÇÃO DINÂMICA NA BARRA LATERAL
-# O Streamlit só vai desenhar na barra lateral as páginas contidas na lista acima
 pg = st.navigation(paginas_disponiveis)
-
 
 # ==========================================
 # INTERFACE E EXECUÇÃO DA TELA DE LOGIN
 # ==========================================
-# Se a página atual selecionada na navegação for o login.py, executa o bloco abaixo:
 if pg == pagina_login:
     # Carrega os dados estruturais do arquivo config.json
     try:
@@ -78,7 +68,6 @@ if pg == pagina_login:
                         bearer_token = dados_resposta.get("token") or dados_resposta.get("accessToken")
                         
                         if bearer_token:
-                            # SALVA AS CREDENCIAIS NA MEMÓRIA DA SESSÃO
                             st.session_state.conectado = True
                             st.session_state.token = bearer_token
                             st.session_state.usuario_email = email_input
@@ -95,8 +84,7 @@ if pg == pagina_login:
             st.warning("Preencha os campos de e-mail e senha.")
 
 else:
-    # Se a página selecionada NÃO for a de login (ou seja, o usuário clicou em Leitura de RMs ou Produtos)
-    # Adicionamos um botão de Logout no topo da barra lateral para conveniência
+    # Menu lateral para o usuário logado
     st.sidebar.write(f"👤 **{st.session_state.usuario_email}**")
     if st.sidebar.button("🚪 Sair / Logout", use_container_width=True):
         st.session_state.conectado = False
@@ -104,5 +92,5 @@ else:
         st.session_state.usuario_email = None
         st.rerun()
 
-    # Roda o código da subpágina selecionada (le_RM.py, map_list_produtos.py, etc.)
+    # Roda o código da subpágina selecionada (telas/le_rm.py ou map/map_list_produtos.py)
     pg.run()
