@@ -1,0 +1,24 @@
+# Credenciais
+
+
+# BD
+bd_api.db
+
+# Python
+__pycache__/
+*.pyc
+
+# Ambiente virtual
+venv/
+.env
+
+# VS Code
+.vscode/
+
+# Secrets 
+.streamlit/
+
+# Dados locais
+LOG/
+XLS/
+PROCESSADOS/
