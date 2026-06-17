@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import json
+import os
 
 # Configuração inicial da página (Deve ser a primeira linha do script)
 st.set_page_config(page_title="Sistema Ecoparque", page_icon="🔐", layout="wide")
@@ -11,11 +12,13 @@ if "conectado" not in st.session_state:
     st.session_state.token = None
     st.session_state.usuario_email = None
 
-# 2. DEFINIÇÃO DAS PÁGINAS CORRIGIDA BASEADO NA IMAGEM
-# O login está na raiz, o le_rm na pasta 'telas' (minúsculo) e o produtos na pasta 'map'
-pagina_login = st.Page("login.py", title="Tela de Login", icon="🔑", default=True)
-pagina_le_rm = st.Page("telas/le_rm.py", title="Leitura de RMs", icon="📋")
-pagina_produtos = st.Page("map/map_list_produtos.py", title="Lista de Produtos", icon="📦")
+# No servidor, o diretório de execução atual conterá a pasta do repositório
+prefixo = "api/" if os.path.exists("api") else ""
+
+# 2. DEFINIÇÃO DAS PÁGINAS COM PREFIXO DINÂMICO
+pagina_login = st.Page(f"{prefixo}login.py", title="Tela de Login", icon="🔑", default=True)
+pagina_le_rm = st.Page(f"{prefixo}telas/le_rm.py", title="Leitura de RMs", icon="📋")
+pagina_produtos = st.Page(f"{prefixo}map/map_list_produtos.py", title="Lista de Produtos", icon="📦")
 
 # LÓGICA DE CONTROLE DE ACESSO
 if not st.session_state.conectado:
