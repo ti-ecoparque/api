@@ -13,10 +13,10 @@ if "conectado" not in st.session_state:
 
 # 2. DEFINIÇÃO DAS PÁGINAS (Apontando para a nova pasta 'telas')
 # st.Page define o arquivo físico, o título na barra lateral e o ícone
-pagina_login = st.Page("api/login.py", title="Tela de Login", icon="🔑", default=True)
-pagina_le_rm = st.Page("api/telas/le_RM.py", title="Leitura de RMs", icon="📋")
-pagina_produtos = st.Page("api/telas/map_list_produtos.py", title="Lista de Produtos", icon="📦")
-
+# 2. DEFINIÇÃO DAS PÁGINAS (Caminhos relativos corretos para o servidor)
+pagina_login = st.Page("login.py", title="Tela de Login", icon="🔑", default=True)
+pagina_le_rm = st.Page("telas/le_RM.py", title="Leitura de RMs", icon="📋")
+pagina_produtos = st.Page("telas/map_list_produtos.py", title="Lista de Produtos", icon="📦")
 
 
 # ==========================================
