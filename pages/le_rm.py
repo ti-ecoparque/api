@@ -5,6 +5,16 @@ import unicodedata
 st.title("📋 Leitura e Tratamento de RMs")
 st.write(f"Conectado como: **{st.session_state.get('usuario_email')}**")
 
+import streamlit as st
+
+# TRAVA DE SEGURANÇA: Bloqueia quem não fez login no login.py
+if "logado" not in st.session_state or not st.session_state.logado:
+    st.warning("⚠️ Acesso negado. Por favor, faça login na tela inicial antes de continuar.")
+    st.stop() # Trava o script e não mostra mais nada abaixo
+
+# A PARTIR DAQUI VEM O SEU CÓDIGO NORMAL DA RM...
+st.title("📋 Leitura e Tratamento de RMs")
+
 # ==========================================
 # FUNÇÕES DE TRATAMENTO (SUA LÓGICA ATUAL)
 # ==========================================
