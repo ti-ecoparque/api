@@ -105,8 +105,8 @@ if dados_fila:
                         
                         # 🔹 PASSO ADICIONAL AUTOMÁTICO: Após integrar na API externa com sucesso,
                         # você pode dar um update para mudar o status para 3 (Atendido) no Supabase!
-                        # supabase.table("api_rm").update({"status_rm": 3}).eq("n_rm", num_rm).execute()
-                        # st.rerun()
+                        supabase.table("api_rm").update({"status_rm": 3}).eq("n_rm", num_rm).execute()
+                        st.rerun()
 
 else:
     st.info("✨ Tudo em dia! Nenhuma requisição com Status 2 localizada na fila de integração.")
