@@ -1,24 +1,28 @@
 import streamlit as st
 import pandas as pd
 import unicodedata
+import os
+from supabase import create_client
 
-st.title("📋 Leitura e Tratamento de RMs")
+# 1. CONFIGURAÇÃO E TRAVA DE SEGURANÇA (Primeiros comandos)
+if "logado" not in st.session_state or not st.session_state.logado:
+    st.warning("Acesso negado. Por favor, faça login na tela inicial antes de continuar.")
+    st.stop()
+
+st.title("Leitura e Tratamento de RMs")
 st.write(f"Conectado como: **{st.session_state.get('usuario_email')}**")
 
-import streamlit as st
+# 2. CONEXÃO COM O SUPABASE
+SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets.get("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY")
 
-# TRAVA DE SEGURANÇA: Bloqueia quem não fez login no login.py
-if "logado" not in st.session_state or not st.session_state.logado:
-    st.warning("⚠️ Acesso negado. Por favor, faça login na tela inicial antes de continuar.")
-    st.stop() # Trava o script e não mostra mais nada abaixo
+if not SUPABASE_URL or not SUPABASE_KEY:
+    st.error("Erro: Credenciais do Supabase não configuradas.")
+    st.stop()
 
-# A PARTIR DAQUI VEM O SEU CÓDIGO NORMAL DA RM...
-st.title("📋 Leitura e Tratamento de RMs")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ==========================================
-# FUNÇÕES DE TRATAMENTO (SUA LÓGICA ATUAL)
-# ==========================================
-
+# --- FUNÇÕES DE TRATAMENTO ---
 def normalizar_texto(texto):
     texto = str(texto)
     texto = unicodedata.normalize('NFKD', texto)
@@ -26,10 +30,7 @@ def normalizar_texto(texto):
     return texto.strip().lower()
 
 def tratar_dados(df):
-    # 🔹 Normaliza colunas
     df.columns = [normalizar_texto(col) for col in df.columns]
-
-    # 🔹 Rename conforme seu padrão original
     df.rename(columns={
         'quantidade solicitada': 'QTD_SOLICITADA',
         'descricao do item':     'DESC_ITEM',
@@ -43,70 +44,101 @@ def tratar_dados(df):
         'sequencial do item':    'SEQ_ITEM'
     }, inplace=True)
 
-    # VALIDAÇÕES IMPORTANTES
-    colunas_obrigatorias = ['cod_solicitacao_mega', 'desc_item', 'qtd_solicitada']
-    
-    # Como as colunas foram normalizadas para minúsculo antes do rename, 
-    # checamos os novos nomes mapeados (maiusculos)
-    colunas_finais_obrigatorias = ['COD_SOLICITACAO_MEGA', 'DESC_ITEM', 'QTD_SOLICITADA']
+    colunas_finais_obrigatorias = ['COD_SOLICITACAO_MEGA', 'DESC_ITEM', 'QTD_SOLICITADA', 'N_RM', 'SEQ_ITEM']
 
     for col in colunas_finais_obrigatorias:
         if col not in df.columns:
-            st.error(f"❌ ERRO: Coluna obrigatória não encontrada no arquivo: `{col}`")
+            st.error(f"Coluna obrigatória não encontrada no arquivo: `{col}`")
             return None
 
-    # Remove linhas vazias importantes
-    df = df.dropna(subset=['DESC_ITEM', 'QTD_SOLICITADA'])
+    df = df.dropna(subset=['DESC_ITEM', 'QTD_SOLICITADA', 'N_RM', 'SEQ_ITEM'])
 
-    # Corrige tipos
+    # 🔹 CORREÇÃO DE INTEIROS: Remove o ".0" limpando os identificadores
+    df['COD_SOLICITACAO_MEGA'] = pd.to_numeric(df['COD_SOLICITACAO_MEGA'], errors='coerce').astype('Int64')
+    df['COD_MEGA'] = pd.to_numeric(df['COD_MEGA'], errors='coerce').astype('Int64')
+    df['N_RM'] = pd.to_numeric(df['N_RM'], errors='coerce').astype('Int64')
+    df['SEQ_ITEM'] = pd.to_numeric(df['SEQ_ITEM'], errors='coerce').astype('Int64')
+    
     df['DESC_ITEM'] = df['DESC_ITEM'].astype(str).str.strip()
     df['QTD_SOLICITADA'] = pd.to_numeric(df['QTD_SOLICITADA'], errors='coerce')
-
-    # Remove quantidade inválida
     df = df[df['QTD_SOLICITADA'] > 0]
 
     return df
 
-# ==========================================
-# INTERFACE GRÁFICA E ARRASTAR/SOLTAR
-# ==========================================
-
-# Caixa para arrastar e soltar arquivos (Aceita múltiplos arquivos de uma vez)
+# --- INTERFACE DE UPLOAD ---
 arquivos_enviados = st.file_uploader(
     "Arraste e solte seus arquivos da RM aqui (.xls ou .xlsx)", 
     type=["xlsx", "xls"], 
     accept_multiple_files=True
 )
 
-# Se o usuário enviou um ou mais arquivos
 if arquivos_enviados:
-    st.write(f"📦 **{len(arquivos_enviados)}** arquivo(s) carregado(s). Processando...")
+    st.write(f" **{len(arquivos_enviados)}** arquivo(s) carregado(s). Processando...")
     
-    # Itera sobre cada arquivo arrastado
     for arquivo in arquivos_enviados:
-        st.subheader(f"📄 Arquivo: {arquivo.name}")
+        st.subheader(f"Arquivo: {arquivo.name}")
         
         try:
-            # O pandas consegue ler diretamente o buffer em memória do Streamlit
             df_bruto = pd.read_excel(arquivo)
-            
-            # Executa o seu tratamento original
             df_tratado = tratar_dados(df_bruto)
             
-            if df_tratado is not None:
-                st.success(f"✅ Dados tratados com sucesso! ({len(df_tratado)} linhas válidas)")
+            if df_tratado is not None and not df_tratado.empty:
+                st.success(f"Dados tratados com sucesso! ({len(df_tratado)} linhas)")
+                st.dataframe(df_tratado[['N_RM', 'SEQ_ITEM', 'DESC_ITEM', 'QTD_SOLICITADA']].head(5))
                 
-                # Exibe uma prévia da tabela na tela do Streamlit para o usuário conferir
-                st.dataframe(df_tratado[['COD_SOLICITACAO_MEGA', 'DESC_ITEM', 'QTD_SOLICITADA']].head(10))
-                
-                # Guarda o DataFrame tratado no estado da sessão caso queira usar em outra página/operação
-                # Usamos o nome do arquivo como chave para separar se forem múltiplos
-                if "rms_tratadas" not in st.session_state:
-                    st.session_state.rms_tratadas = {}
-                st.session_state.rms_tratadas[arquivo.name] = df_tratado
-                
+                # Botão para enviar cada planilha tratada ao banco
+                if st.button(f"🚀 Importar {arquivo.name} para o Supabase", key=arquivo.name):
+                    salvos = 0
+                    ignorados = 0
+                    
+                    progresso = st.progress(0)
+                    total_linhas = len(df_tratado)
+                    
+                    # Para conseguir ignorar duplicados mantendo a constraint, processamos linha por linha
+                    for index, (_, linha) in enumerate(df_tratado.iterrows()):
+                        # Converte a data com segurança para string aceita pelo banco ou passa None
+                        data_nec = None
+                        if 'DATA_NECESSIDADE' in linha and pd.notna(linha['DATA_NECESSIDADE']):
+                            data_nec = str(linha['DATA_NECESSIDADE'])
+
+                        registro = {
+                            "cod_solicitacao_mega": int(linha["COD_SOLICITACAO_MEGA"]) if pd.notna(linha["COD_SOLICITACAO_MEGA"]) else None,
+                            "desc_item": str(linha["DESC_ITEM"]),
+                            "qtd_solicitada": float(linha["QTD_SOLICITADA"]),
+                            "data_necessidade": data_nec,
+                            "user_solicitacao": str(linha.get("USER_SOLICITACAO", "")) if pd.notna(linha.get("USER_SOLICITACAO")) else None,
+                            "cod_user_mega": str(linha.get("COD_USER_MEGA", "")) if pd.notna(linha.get("COD_USER_MEGA")) else None,
+                            "obs_item": str(linha.get("OBS_ITEM", "")) if pd.notna(linha.get("OBS_ITEM")) else None,
+                            "cod_mega": int(linha["COD_MEGA"]) if pd.notna(linha["COD_MEGA"]) else None,
+                            "n_rm": int(linha["N_RM"]),
+                            "seq_item": int(linha["SEQ_ITEM"]),
+                            "status_rm": 1, # Define o valor inicial padrão solicitado (pode ser 1, 2 ou 3)
+                            "usuario_importacao": st.session_state.usuario_email
+                        }
+                        
+                        try:
+                            # Tenta inserir o item único no Supabase
+                            supabase.table("api_rm").insert(registro).execute()
+                            salvos += 1
+                        except Exception as e:
+                            # O código de erro do PostgreSQL para violação de chave única/Constraint é '23505'
+                            if "23505" in str(e) or "unique_rm_item" in str(e):
+                                ignorados += 1
+                            else:
+                                # Se for outro erro de banco (ex: coluna errada), avisa na tela
+                                st.error(f"Erro inesperado na linha {index}: {e}")
+                        
+                        progresso.progress((index + 1) / total_linhas)
+                    
+                    # Mensagens informativas finais do lote processado
+                    st.write("---")
+                    st.success(f"📥 Processamento concluído!")
+                    st.info(f"✔️ Itens novos inseridos: **{salvos}**")
+                    
+                    if ignorados > 0:
+                        st.warning(f"⚠️ Itens ignorados por já existirem no banco: **{ignorados}**")
+                        
         except Exception as e:
-            st.error(f"❌ Falha ao processar o arquivo {arquivo.name}: {e}")
-            
+            st.error(f"Falha ao processar o arquivo {arquivo.name}: {e}")
 else:
     st.info("Aguardando o envio de arquivos para iniciar o processamento.")
