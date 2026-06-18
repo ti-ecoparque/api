@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from supabase import create_client
 
-# 1. TRAVA DE SEGURANÇA E CONFIGURAÇÃO
+# 1. CONFIGURAÇÃO E TRAVA DE SEGURANÇA
 if "logado" not in st.session_state or not st.session_state.logado:
     st.warning("⚠️ Acesso negado. Por favor, faça login na tela inicial antes de continuar.")
     st.stop()
@@ -22,168 +22,150 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ==========================================
-# LÓGICA DE LIMPEZA DE FILTROS
+# LÓGICA DE LIMPEZA E ESTADO DE FILTROS
 # ==========================================
-def limpar_filtros():
-    st.session_state.filtro_rm_input = ""
-    st.session_state.filtro_datas_input = []
-
-# Inicializa os estados das caixas se não existirem
-if "filtro_rm_input" not in st.session_state:
-    st.session_state.filtro_rm_input = ""
 if "filtro_datas_input" not in st.session_state:
     st.session_state.filtro_datas_input = []
 
-# ==========================================
-# INTERFACE GRÁFICA DE FILTROS
-# ==========================================
+def limpar_filtros():
+    st.session_state.filtro_datas_input = []
+
 st.divider()
 st.subheader("🔍 Filtros de Busca")
 
+# Formulário apenas para o filtro de datas (Opcional)
 with st.form("form_filtros_busca"):
-    col1, col2 = st.columns(2)
-    with col1:
-        # Forçamos o campo a ler e guardar o valor no session_state para permitir a limpeza
-        filtro_rm = st.text_input(
-            "Número da RM (Obrigatório para validação)", 
-            value=st.session_state.filtro_rm_input,
-            key="rm_temporaria",
-            placeholder="Ex: 1464"
-        )
-    with col2:
-        filtro_datas = st.date_input(
-            "Período da Data de Necessidade (Opcional)", 
-            value=st.session_state.filtro_datas_input,
-            key="datas_temporarias",
-            format="DD/MM/YYYY"
-        )
-        
-    col_btn_busca, col_btn_limpar = st.columns([1, 1])
-    with col_btn_busca:
-        buscar = st.form_submit_button("🔍 Executar Busca", use_container_width=True)
+    filtro_datas = st.date_input(
+        "Período da Data de Necessidade (Opcional)", 
+        value=st.session_state.filtro_datas_input,
+        key="datas_temporarias",
+        format="DD/MM/YYYY"
+    )
+    buscar = st.form_submit_button("🔍 Filtrar por Data", use_container_width=True)
 
-# Botão de limpar filtros colocado de forma nativa fora do formulário para disparar o on_click
 st.button("🧹 Limpar Filtros", on_click=limpar_filtros, use_container_width=True)
 
-# ==========================================
-# PROCESSAMENTO E REQUISIÇÕES
-# ==========================================
 if buscar:
-    # 🚨 REGRA DE NEGÓCIO 1: Bloqueia a busca se não digitar o número da RM
-    if not filtro_rm:
-        st.warning("⚠️ Para validar o De/Para e avançar o status, informe o Número da RM obrigatoriamente.")
-        st.stop()
-        
-    # Salva os dados pesquisados atuais na sessão
-    st.session_state.filtro_rm_input = filtro_rm
     st.session_state.filtro_datas_input = filtro_datas
 
-    with st.spinner("Consultando dados e validando com a lista mestra..."):
-        try:
-            # Busca estritamente os itens da RM informada que estão pendentes (Status 1)
-            query_rm = supabase.table("api_rm").select("*").eq("status_rm", 1).eq("n_rm", int(filtro_rm))
+# ==========================================
+# REQUISIÇÃO DOS DADOS (TRAZ TUDO STATUS 1)
+# ==========================================
+with st.spinner("Carregando RMs pendentes..."):
+    try:
+        # Busca TODOS os itens pendentes (Status 1) do banco
+        query_rm = supabase.table("api_rm").select("*").eq("status_rm", 1)
+        
+        # Aplica o filtro de data se houver período selecionado
+        if len(st.session_state.filtro_datas_input) == 2:
+            query_rm = query_rm.gte("data_necessidade", st.session_state.filtro_datas_input[0].strftime("%Y-%m-%d"))\
+                               .lte("data_necessidade", st.session_state.filtro_datas_input[1].strftime("%Y-%m-%d"))
             
-            if len(filtro_datas) == 2:
-                query_rm = query_rm.gte("data_necessidade", filtro_datas[0].strftime("%Y-%m-%d"))\
-                                   .lte("data_necessidade", filtro_datas[1].strftime("%Y-%m-%d"))
-                
-            res_rm = query_rm.execute()
-            dados_rm = res_rm.data
-            
-            # Busca a tabela mestra inteira para bater os códigos em memória
-            res_materiais = supabase.table("api_materiais").select("m_coditem, m_descricao_do_item").execute()
-            dados_materiais = res_materiais.data
-            
-        except Exception as e:
-            st.error(f"Erro ao consultar o banco de dados: {e}")
-            dados_rm, dados_materiais = [], []
+        res_rm = query_rm.execute()
+        dados_rm = res_rm.data
+        
+        # Busca a tabela mestra inteira para bater os códigos em memória
+        res_materiais = supabase.table("api_materiais").select("m_coditem, m_descricao_do_item").execute()
+        dados_materiais = res_materiais.data
+        
+    except Exception as e:
+        st.error(f"Erro ao consultar o banco de dados: {e}")
+        dados_rm, dados_materiais = [], []
 
-    # CRUZAMENTO DE DADOS (MERGE/PROCV)
-    if dados_rm:
-        df_rm = pd.DataFrame(dados_rm)
-        df_mat = pd.DataFrame(dados_materiais)
-        
-        # Alinha os tipos de dados para inteiros
-        df_rm['cod_mega'] = pd.to_numeric(df_rm['cod_mega'], errors='coerce').astype('Int64')
-        if not df_mat.empty:
-            df_mat['m_coditem'] = pd.to_numeric(df_mat['m_coditem'], errors='coerce').astype('Int64')
-        
-        # Realiza o Merge comparando cod_mega com m_coditem
-        if not df_mat.empty:
-            df_consolidado = pd.merge(df_rm, df_mat, left_on='cod_mega', right_on='m_coditem', how='left')
-        else:
-            df_consolidado = df_rm.copy()
-            df_consolidado['m_descricao_do_item'] = None
-
-        linhas_tabela = []
-        ids_da_rm_atual = []
-        contagem_nao_encontrados = 0
-        
-        for _, linha in df_consolidado.iterrows():
-            achou = "SIM" if pd.notna(linha.get("m_descricao_do_item")) else "NÃO"
-            
-            # Coleta todos os IDs de registros pertencentes a esta RM filtrada
-            ids_da_rm_atual.append(int(linha["id"]))
-            
-            if achou == "NÃO":
-                contagem_nao_encontrados += 1
-                
-            linhas_tabela.append({
-                "Nº RM": linha.get("n_rm"),
-                "Cód. Solicitação": linha.get("cod_solicitacao_mega"),
-                "Seq": linha.get("seq_item"),
-                "Codigo do Mega": linha.get("cod_mega"),
-                "Descrição RM": linha.get("desc_item"),
-                "Qtd": linha.get("qtd_solicitada"),
-                "Data Necessidade": linha.get("data_necessidade"),
-                "Encontrado no Mestra?": achou,
-                "Descrição Mestra (De/Para)": linha.get("m_descricao_do_item") if achou == "SIM" else "---"
-            })
-            
-        df_exibicao = pd.DataFrame(linhas_tabela)
-        
-        st.write(f"📋 **Itens da RM {filtro_rm} pendentes de aprovação:**")
-        st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
-        
-        st.divider()
-        
-        total_itens_rm = len(df_exibicao)
-        total_prontos = total_itens_rm - contagem_nao_encontrados
-        
-        col_stat1, col_stat2 = st.columns(2)
-        col_stat1.metric("Itens Encontrados (Válidos)", total_prontos)
-        col_stat2.metric("Itens Faltantes (Bloqueados)", contagem_nao_encontrados)
-        
-        # ==========================================
-        # 🚨 REGRA DE VALIDAÇÃO CRÍTICA (TUDO OU NADA)
-        # ==========================================
-        # Só libera a mudança de status para 2 se NÃO houver nenhum item marcado como 'NÃO'
-        if contagem_nao_encontrados == 0:
-            st.success(f"🎉 Excelente! Todos os **{total_itens_rm}** itens da RM {filtro_rm} foram validados na lista mestra.")
-            
-            # Atualiza o status de 1 para 2 de todos os itens dessa RM de uma vez só
-            if st.button(f"🚀 Aprovar RM {filtro_rm} (Mudar para Status 2)", type="primary", use_container_width=True):
-                with st.spinner("Registrando aprovação da RM..."):
-                    try:
-                        resposta_update = supabase.table("api_rm")\
-                            .update({"status_rm": 2})\
-                            .in_("id", ids_da_rm_atual)\
-                            .execute()
-                        
-                        if respuesta_update.data:
-                            st.balloons()
-                            st.success(f"RM {filtro_rm} aprovada por completo e enviada para a fila de integração (Status 2)!")
-                            limpar_filtros()
-                            st.rerun()
-                    except Exception as erro_up:
-                        st.error(f"Erro ao processar atualização da RM: {erro_up}")
-        else:
-            # Bloqueia a operação jogando um alerta explicativo na interface
-            st.error(
-                f"❌ **Aprovação Bloqueada:** Existem **{contagem_nao_encontrados}** item(ns) nesta RM que não possuem correspondência "
-                f"na tabela 'api_materiais'. Cadastre os códigos pendentes na lista mestra antes de tentar liberar a RM."
-            )
-            st.button(f"🔒 Mudar Status Bloqueado (Ajuste os {contagem_nao_encontrados} itens)", disabled=True, use_container_width=True)
-            
+# ==========================================
+# PROCESSAMENTO EM MEMÓRIA COM PANDAS
+# ==========================================
+if dados_rm:
+    df_rm = pd.DataFrame(dados_rm)
+    df_mat = pd.DataFrame(dados_materiais)
+    
+    # Padroniza chaves para números inteiros
+    df_rm["cod_mega"] = pd.to_numeric(df_rm["cod_mega"], errors="coerce").astype("Int64")
+    if not df_mat.empty:
+        df_mat["m_coditem"] = pd.to_numeric(df_mat["m_coditem"], errors="coerce").astype("Int64")
+    
+    # Realiza o Merge comparando cod_mega com m_coditem
+    if not df_mat.empty:
+        df_consolidado = pd.merge(df_rm, df_mat, left_on="cod_mega", right_on="m_coditem", how="left")
     else:
-        st.info(f"Nenhum item pendente (Status 1) localizado para a RM **{filtro_rm}**.")
+        df_consolidado = df_rm.copy()
+        df_consolidado["m_descricao_do_item"] = None
+
+    # Descobre todas as RMs únicas que estão na lista para gerar os blocos na tela
+    rms_unicas = sorted(df_consolidado["n_rm"].dropna().unique())
+    
+    st.write(f"📊 Foram localizadas **{len(rms_unicas)}** RM(s) com itens pendentes.")
+    
+    # ==========================================
+    # LAÇO REPETITIVO: GERA UMA SEÇÃO POR RM
+    # ==========================================
+    for num_rm in rms_unicas:
+        # Filtra o DataFrame consolidado trazendo apenas os registros desta RM específica
+        df_rm_atual = df_consolidado[df_consolidado["n_rm"] == num_rm]
+        
+        # Cria uma caixa expansível visual organizada para cada RM separada
+        with st.expander(f"📦 REQUISIÇÃO DE MATERIAL - RM Nº {num_rm} ({len(df_rm_atual)} itens)", expanded=True):
+            
+            linhas_tabela = []
+            ids_para_aprovar = []
+            contagem_bloqueados = 0
+            
+            # Varre os itens da RM atual para montar a tabela visual
+            for _, linha in df_rm_atual.iterrows():
+                achou = "SIM" if pd.notna(linha.get("m_descricao_do_item")) else "NÃO"
+                
+                # Guarda o ID do banco para o processo de update em lote individual
+                ids_para_aprovar.append(int(linha["id"]))
+                
+                if achou == "NÃO":
+                    contagem_bloqueados += 1
+                    
+                linhas_tabela.append({
+                    "Seq": linha.get("seq_item"),
+                    "Cód. Solicitação": linha.get("cod_solicitacao_mega"),
+                    "Codigo do Mega": linha.get("cod_mega"),
+                    "Descrição RM": linha.get("desc_item"),
+                    "Qtd": linha.get("qtd_solicitada"),
+                    "Data Necessidade": linha.get("data_necessidade"),
+                    "Encontrado no Mestra?": achou,
+                    "Descrição Mestra (De/Para)": linha.get("m_descricao_do_item") if achou == "SIM" else "---"
+                })
+                
+            df_exibicao_rm = pd.DataFrame(linhas_tabela).sort_values(by="Seq")
+            
+            # Desenha a tabela específica desta RM na tela
+            st.dataframe(df_exibicao_rm, use_container_width=True, hide_index=True)
+            
+            # Lógica de validação "Tudo ou Nada" por bloco de RM
+            if contagem_bloqueados == 0:
+                st.success(f"✔️ Todos os itens da RM {num_rm} foram validados com sucesso no De/Para.")
+                
+                # Botão de aprovação individual exclusivo desta RM
+                if st.button(f"🚀 Aprovar RM {num_rm}", key=f"btn_aprovar_{num_rm}", use_container_width=True, type="primary"):
+                    with st.spinner(f"Atualizando RM {num_rm}..."):
+                        try:
+                            resposta_update = supabase.table("api_rm")\
+                                .update({"status_rm": 2})\
+                                .in_("id", ids_para_aprovar)\
+                                .execute()
+                            
+                            if resposta_update.data:
+                                st.balloons()
+                                st.success(f"🎉 RM {num_rm} atualizada com sucesso para o Status 2!")
+                                st.rerun()
+                        except Exception as error_up:
+                            st.error(f"Erro ao atualizar banco: {error_up}")
+            else:
+                # Bloqueia a aprovação desta RM específica e exibe o alerta
+                st.error(
+                    f"❌ **Aprovação Bloqueada:** Existem **{contagem_bloqueados}** item(ns) nesta RM sem "
+                    f"correspondência na tabela 'api_materiais'. Ajuste o cadastro para liberar."
+                )
+                st.button(
+                    f"🔒 RM {num_rm} Bloqueada ({contagem_bloqueados} pendências)", 
+                    key=f"btn_bloqueado_{num_rm}", 
+                    disabled=True, 
+                    use_container_width=True
+                )
+else:
+    st.info("Nenhuma requisição pendente (Status 1) foi localizada no banco.")
