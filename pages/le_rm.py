@@ -55,8 +55,8 @@ with st.spinner("Carregando RMs pendentes..."):
         query_rm = supabase.table("api_rm").select("*").eq("status_rm", 1)
         
         if len(st.session_state.filtro_datas_input) == 2:
-            query_rm = query_rm.gte("data_necessidade", st.session_state.filtro_datas_input[0].strftime("%Y-%m-%d"))\
-                               .lte("data_necessidade", st.session_state.filtro_datas_input[1].strftime("%Y-%m-%d"))
+            query_rm = query_rm.gte("data_necessidade", st.session_state.filtro_datas_input.strftime("%Y-%m-%d"))\
+                               .lte("data_necessidade", st.session_state.filtro_datas_input.strftime("%Y-%m-%d"))
             
         res_rm = query_rm.execute()
         dados_rm = res_rm.data
@@ -107,14 +107,14 @@ if dados_rm:
                 if achou == "NÃO":
                     contagem_bloqueados += 1
                 else:
-                    # Se o item é válido, já estruturamos o dicionário do LOG com os dados daquele momento
+                    # Força a tipagem nativa correta para evitar rejeição de formato no Supabase
                     lista_logs_para_salvar.append({
                         "id_api_rm": int(linha["id"]),
                         "n_rm": int(linha["n_rm"]),
                         "cod_solicitacao_mega": int(linha["cod_solicitacao_mega"]) if pd.notna(linha["cod_solicitacao_mega"]) else None,
                         "cod_mega": int(linha["cod_mega"]) if pd.notna(linha["cod_mega"]) else None,
-                        "t_item": str(linha.get("t_item", "")) if pd.notna(linha.get("t_item")) else None,
-                        "m_descricao_do_item": str(linha.get("m_descricao_do_item", "")) if pd.notna(linha.get("m_descricao_do_item")) else None,
+                        "t_item": str(linha.get("t_item", "")).strip() if pd.notna(linha.get("t_item")) else None,
+                        "m_descricao_do_item": str(linha.get("m_descricao_do_item", "")).strip() if pd.notna(linha.get("m_descricao_do_item")) else None,
                         "usuario_logado": str(st.session_state.usuario_email)
                     })
                     
@@ -137,13 +137,14 @@ if dados_rm:
                 st.success(f"✔️ Todos os itens da RM {num_rm} foram validados com sucesso no De/Para.")
                 
                 if st.button(f"🚀 Aprovar RM {num_rm}", key=f"btn_aprovar_{num_rm}", use_container_width=True, type="primary"):
-                    with St.spinner(f"Gravando LOG e salvando aprovação da RM {num_rm}..."):
+                    # 🔹 CORREÇÃO AQUI: Mudado de St.spinner para st.spinner (minúsculo)
+                    with st.spinner(f"Gravando LOG e salvando aprovação da RM {num_rm}..."):
                         try:
-                            # 🚨 PASSO 1: Grava o instantâneo de segurança na tabela de LOGS primeiro
+                            # 🚨 PASSO 1: Grava o instantâneo na tabela de LOGS
                             resposta_log = supabase.table("api_log_rm").insert(lista_logs_para_salvar).execute()
                             
                             if resposta_log.data:
-                                # 🚨 PASSO 2: Apenas se o log foi gravado com sucesso, muda o status para 2
+                                # 🚨 PASSO 2: Avança o status para 2 se o LOG persistiu com sucesso
                                 resposta_update = supabase.table("api_rm")\
                                     .update({"status_rm": 2})\
                                     .in_("id", ids_para_aprovar)\
@@ -151,12 +152,12 @@ if dados_rm:
                                 
                                 if resposta_update.data:
                                     st.balloons()
-                                    st.success(f"🎉 Sucesso! LOG gerado e RM {num_rm} aprovada para Status 2.")
+                                    st.success(f"🎉 Sucesso! LOG gerado na tabela api_log_rm e RM {num_rm} aprovada.")
                                     st.rerun()
                             else:
-                                st.error("Falha de segurança: Não foi possível registrar o LOG da ação. Operação cancelada.")
+                                st.error("Falha de segurança: A API do Supabase recusou a gravação do LOG.")
                         except Exception as error_up:
-                            st.error(f"Erro ao processar lote no Supabase: {error_up}")
+                            st.error(f"Erro transacional no Supabase: {error_up}")
             else:
                 st.error(f"❌ **Aprovação Bloqueada:** Existem **{contagem_bloqueados}** item(ns) pendentes no De/Para.")
                 st.button(f"🔒 RM {num_rm} Bloqueada ({contagem_bloqueados} pendências)", key=f"btn_bloqueado_{num_rm}", disabled=True, use_container_width=True)
