@@ -22,7 +22,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ==========================================
-# LÓGICA DE LIMPEZA E ESTADO DE FILTROS
+# LÓGICA DE FILTROS DE DATAS
 # ==========================================
 if "filtro_datas_input" not in st.session_state:
     st.session_state.filtro_datas_input = []
@@ -33,7 +33,6 @@ def limpar_filtros():
 st.divider()
 st.subheader("🔍 Filtros de Busca")
 
-# Formulário apenas para o filtro de datas (Opcional)
 with st.form("form_filtros_busca"):
     filtro_datas = st.date_input(
         "Período da Data de Necessidade (Opcional)", 
@@ -53,19 +52,17 @@ if buscar:
 # ==========================================
 with st.spinner("Carregando RMs pendentes..."):
     try:
-        # Busca TODOS os itens pendentes (Status 1) do banco
         query_rm = supabase.table("api_rm").select("*").eq("status_rm", 1)
         
-        # Aplica o filtro de data se houver período selecionado
         if len(st.session_state.filtro_datas_input) == 2:
-            query_rm = query_rm.gte("data_necessidade", st.session_state.filtro_datas_input[0].strftime("%Y-%m-%d"))\
-                               .lte("data_necessidade", st.session_state.filtro_datas_input[1].strftime("%Y-%m-%d"))
+            query_rm = query_rm.gte("data_necessidade", st.session_state.filtro_datas_input.strftime("%Y-%m-%d"))\
+                               .lte("data_necessidade", st.session_state.filtro_datas_input.strftime("%Y-%m-%d"))
             
         res_rm = query_rm.execute()
         dados_rm = res_rm.data
         
-        # Busca a tabela mestra inteira para bater os códigos em memória
-        res_materiais = supabase.table("api_materiais").select("m_coditem, m_descricao_do_item").execute()
+        # Traz os campos t_item e m_descricao_do_item da lista mestra para o LOG
+        res_materiais = supabase.table("api_materiais").select("m_coditem, t_item, m_descricao_do_item").execute()
         dados_materiais = res_materiais.data
         
     except Exception as e:
@@ -73,13 +70,13 @@ with st.spinner("Carregando RMs pendentes..."):
         dados_rm, dados_materiais = [], []
 
 # ==========================================
-# PROCESSAMENTO EM MEMÓRIA COM PANDAS
+# PROCESSAMENTO DO MERGE COM PANDAS
 # ==========================================
 if dados_rm:
     df_rm = pd.DataFrame(dados_rm)
     df_mat = pd.DataFrame(dados_materiais)
     
-    # Padroniza chaves para números inteiros
+    # Força a padronização de tipos primitivos inteiros
     df_rm["cod_mega"] = pd.to_numeric(df_rm["cod_mega"], errors="coerce").astype("Int64")
     if not df_mat.empty:
         df_mat["m_coditem"] = pd.to_numeric(df_mat["m_coditem"], errors="coerce").astype("Int64")
@@ -90,35 +87,42 @@ if dados_rm:
     else:
         df_consolidado = df_rm.copy()
         df_consolidado["m_descricao_do_item"] = None
+        df_consolidado["t_item"] = None
 
-    # Descobre todas as RMs únicas que estão na lista para gerar os blocos na tela
+    # Agrupa as RMs dinamicamente por número único presente
     rms_unicas = sorted(df_consolidado["n_rm"].dropna().unique())
-    
     st.write(f"📊 Foram localizadas **{len(rms_unicas)}** RM(s) com itens pendentes.")
     
     # ==========================================
-    # LAÇO REPETITIVO: GERA UMA SEÇÃO POR RM
+    # RENDERIZAÇÃO DAS SEÇÕES POR RM VIA LOOP
     # ==========================================
     for num_rm in rms_unicas:
-        # Filtra o DataFrame consolidado trazendo apenas os registros desta RM específica
         df_rm_atual = df_consolidado[df_consolidado["n_rm"] == num_rm]
         
-        # Cria uma caixa expansível visual organizada para cada RM separada
         with st.expander(f"📦 REQUISIÇÃO DE MATERIAL - RM Nº {num_rm} ({len(df_rm_atual)} itens)", expanded=True):
-            
             linhas_tabela = []
             ids_para_aprovar = []
+            lista_logs_para_salvar = []
             contagem_bloqueados = 0
             
-            # Varre os itens da RM atual para montar a tabela visual
             for _, linha in df_rm_atual.iterrows():
                 achou = "SIM" if pd.notna(linha.get("m_descricao_do_item")) else "NÃO"
-                
-                # Guarda o ID do banco para o processo de update em lote individual
                 ids_para_aprovar.append(int(linha["id"]))
                 
                 if achou == "NÃO":
                     contagem_bloqueados += 1
+                else:
+                    # 🔹 CORREÇÃO DE CHAVES DA TABELA CONSOLIDADA:
+                    # Mapeamento ajustado para ler as chaves corretas que o Pandas gerou na memória
+                    lista_logs_para_salvar.append({
+                        "id_api_rm": int(linha["id"]),
+                        "n_rm": int(linha["n_rm"]),
+                        "cod_solicitacao_mega": int(linha["cod_solicitacao_mega"]) if pd.notna(linha["cod_solicitacao_mega"]) else None,
+                        "cod_mega": int(linha["cod_mega"]) if pd.notna(linha["cod_mega"]) else None,
+                        "t_item": str(linha.get("t_item", "")).strip() if pd.notna(linha.get("t_item")) else None,
+                        "m_descricao_do_item": str(linha.get("m_descricao_do_item", "")).strip() if pd.notna(linha.get("m_descricao_do_item")) else None,
+                        "usuario_logado": str(st.session_state.usuario_email)
+                    })
                     
                 linhas_tabela.append({
                     "Seq": linha.get("seq_item"),
@@ -132,18 +136,30 @@ if dados_rm:
                 })
                 
             df_exibicao_rm = pd.DataFrame(linhas_tabela).sort_values(by="Seq")
-            
-            # Desenha a tabela específica desta RM na tela
             st.dataframe(df_exibicao_rm, use_container_width=True, hide_index=True)
             
-            # Lógica de validação "Tudo ou Nada" por bloco de RM
+            # ==========================================
+            # AÇÃO DE APROVAÇÃO TRANSACIONAL
+            # ==========================================
             if contagem_bloqueados == 0:
                 st.success(f"✔️ Todos os itens da RM {num_rm} foram validados com sucesso no De/Para.")
                 
-                # Botão de aprovação individual exclusivo desta RM
                 if st.button(f"🚀 Aprovar RM {num_rm}", key=f"btn_aprovar_{num_rm}", use_container_width=True, type="primary"):
-                    with st.spinner(f"Atualizando RM {num_rm}..."):
+                    with st.spinner(f"Gravando LOG e salvando aprovação da RM {num_rm}..."):
+                        
+                        if not lista_logs_para_salvar:
+                            st.error("Erro interno: A lista de LOGS está vazia!")
+                            st.stop()
+                        
                         try:
+                            # 🚨 PASSO 1: Salva o instantâneo na tabela de LOGS
+                            resposta_log = supabase.table("api_log_rm").insert(lista_logs_para_salvar).execute()
+                            
+                            if not resposta_log.data or len(resposta_log.data) == 0:
+                                st.error("❌ **Falha Crítica de Persistência:** O LOG de segurança não pôde ser salvo!")
+                                st.stop()
+                            
+                            # 🚨 PASSO 2: Altera o status_rm para 2 após garantir a gravação do LOG
                             resposta_update = supabase.table("api_rm")\
                                 .update({"status_rm": 2})\
                                 .in_("id", ids_para_aprovar)\
@@ -151,21 +167,16 @@ if dados_rm:
                             
                             if resposta_update.data:
                                 st.balloons()
-                                st.success(f"🎉 RM {num_rm} atualizada com sucesso para o Status 2!")
+                                st.success(f"🎉 Perfeito! LOG gravado na tabela api_log_rm e RM {num_rm} aprovada para Status 2.")
                                 st.rerun()
+                                    
                         except Exception as error_up:
-                            st.error(f"Erro ao atualizar banco: {error_up}")
+                            st.error(f"❌ Erro crítico de comunicação transacional com o Supabase!")
+                            with st.expander("Ver erro técnico detalhado"):
+                                st.code(str(error_up))
+                            st.stop()
             else:
-                # Bloqueia a aprovação desta RM específica e exibe o alerta
-                st.error(
-                    f"❌ **Aprovação Bloqueada:** Existem **{contagem_bloqueados}** item(ns) nesta RM sem "
-                    f"correspondência na tabela 'api_materiais'. Ajuste o cadastro para liberar."
-                )
-                st.button(
-                    f"🔒 RM {num_rm} Bloqueada ({contagem_bloqueados} pendências)", 
-                    key=f"btn_bloqueado_{num_rm}", 
-                    disabled=True, 
-                    use_container_width=True
-                )
+                st.error(f"❌ **Aprovação Bloqueada:** Existem **{contagem_bloqueados}** item(ns) pendentes no De/Para.")
+                st.button(f"🔒 RM {num_rm} Bloqueada ({contagem_bloqueados} pendências)", key=f"btn_bloqueado_{num_rm}", disabled=True, use_container_width=True)
 else:
     st.info("Nenhuma requisição pendente (Status 1) foi localizada no banco.")
