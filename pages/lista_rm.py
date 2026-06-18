@@ -98,9 +98,7 @@ if buscar:
             st.error(f"Erro ao consultar o banco de dados: {e}")
             dados_rm, dados_materiais = [], []
 
-    # ==========================================
     # CRUZAMENTO DE DADOS (MERGE/PROCV)
-    # ==========================================
     if dados_rm:
         df_rm = pd.DataFrame(dados_rm)
         df_mat = pd.DataFrame(dados_materiais)
