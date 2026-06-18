@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from supabase import create_client
 
-# 1. CONFIGURAÇÃO E TRAVA DE SEGURANÇA
+# 1. CONFIGURAÇÃO E TRAVA DE SEGURANÇA (Obrigatórios no topo)
 if "logado" not in st.session_state or not st.session_state.logado:
     st.warning("⚠️ Acesso negado. Por favor, faça login na tela inicial antes de continuar.")
     st.stop()
@@ -22,7 +22,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ==========================================
-# LÓGICA DE FILTROS (MANTIDA)
+# LÓGICA DE FILTROS DE DATAS
 # ==========================================
 if "filtro_datas_input" not in st.session_state:
     st.session_state.filtro_datas_input = []
@@ -48,7 +48,7 @@ if buscar:
     st.session_state.filtro_datas_input = filtro_datas
 
 # ==========================================
-# REQUISIÇÃO DOS DADOS
+# REQUISIÇÃO DOS DADOS (TRAZ TUDO STATUS 1)
 # ==========================================
 with st.spinner("Carregando RMs pendentes..."):
     try:
@@ -61,7 +61,7 @@ with st.spinner("Carregando RMs pendentes..."):
         res_rm = query_rm.execute()
         dados_rm = res_rm.data
         
-        # Traz os campos t_item e m_descricao_do_item solicitados para o LOG
+        # Traz os campos t_item e m_descricao_do_item da lista mestra para o LOG
         res_materiais = supabase.table("api_materiais").select("m_coditem, t_item, m_descricao_do_item").execute()
         dados_materiais = res_materiais.data
         
@@ -70,16 +70,18 @@ with st.spinner("Carregando RMs pendentes..."):
         dados_rm, dados_materiais = [], []
 
 # ==========================================
-# PROCESSAMENTO DO MERGE
+# PROCESSAMENTO DO MERGE COM PANDAS
 # ==========================================
 if dados_rm:
     df_rm = pd.DataFrame(dados_rm)
     df_mat = pd.DataFrame(dados_materiais)
     
+    # Força a padronização de tipos primitivos inteiros
     df_rm["cod_mega"] = pd.to_numeric(df_rm["cod_mega"], errors="coerce").astype("Int64")
     if not df_mat.empty:
         df_mat["m_coditem"] = pd.to_numeric(df_mat["m_coditem"], errors="coerce").astype("Int64")
     
+    # Realiza o Merge comparando cod_mega com m_coditem
     if not df_mat.empty:
         df_consolidado = pd.merge(df_rm, df_mat, left_on="cod_mega", right_on="m_coditem", how="left")
     else:
@@ -87,12 +89,15 @@ if dados_rm:
         df_consolidado["m_descricao_do_item"] = None
         df_consolidado["t_item"] = None
 
+    # Agrupa as RMs dinamicamente por número único presente
     rms_unicas = sorted(df_consolidado["n_rm"].dropna().unique())
     st.write(f"📊 Foram localizadas **{len(rms_unicas)}** RM(s) com itens pendentes.")
     
-    # Seções por RM
+    # ==========================================
+    # RENDERIZAÇÃO DAS SEÇÕES POR RM VIA LOOP
+    # ==========================================
     for num_rm in rms_unicas:
-        df_rm_atual = df_consolidado[df_consolidated["n_rm"] == num_rm]
+        df_rm_atual = df_consolidado[df_consolidado["n_rm"] == num_rm]
         
         with st.expander(f"📦 REQUISIÇÃO DE MATERIAL - RM Nº {num_rm} ({len(df_rm_atual)} itens)", expanded=True):
             linhas_tabela = []
@@ -107,7 +112,7 @@ if dados_rm:
                 if achou == "NÃO":
                     contagem_bloqueados += 1
                 else:
-                    # Força a tipagem nativa correta para evitar rejeição de formato no Supabase
+                    # Estruturação rígida de tipos nativos para gravação segura do LOG instantâneo
                     lista_logs_para_salvar.append({
                         "id_api_rm": int(linha["id"]),
                         "n_rm": int(linha["n_rm"]),
@@ -132,7 +137,9 @@ if dados_rm:
             df_exibicao_rm = pd.DataFrame(linhas_tabela).sort_values(by="Seq")
             st.dataframe(df_exibicao_rm, use_container_width=True, hide_index=True)
             
-            # Validação Tudo ou Nada
+            # ==========================================
+            # AÇÃO DE APROVAÇÃO TRANSACIONAL
+            # ==========================================
             if contagem_bloqueados == 0:
                 st.success(f"✔️ Todos os itens da RM {num_rm} foram validados com sucesso no De/Para.")
                 
@@ -144,28 +151,32 @@ if dados_rm:
                             st.stop()
                         
                         try:
-                            # 🚨 PASSO 1: Tenta gravar na tabela de LOGS
+                            # 🚨 PASSO 1: Persiste o instantâneo na tabela de LOGS
                             resposta_log = supabase.table("api_log_rm").insert(lista_logs_para_salvar).execute()
                             
-                            # 🚨 PASSO 2: Avança o status para 2 se o LOG persistiu com sucesso
-                            if resposta_log.data and len(resposta_log.data) > 0:
-                                resposta_update = supabase.table("api_rm")\
-                                    .update({"status_rm": 2})\
-                                    .in_("id", ids_para_aprovar)\
-                                    .execute()
-                                
-                                if resposta_update.data:
-                                    st.balloons()
-                                    st.success(f"🎉 Sucesso! LOG gerado na tabela api_log_rm e RM {num_rm} aprovada.")
-                                    st.rerun()
-                            else:
-                                st.error("⚠️ O Supabase aceitou a chamada mas retornou uma lista vazia para api_log_rm. Verifique as políticas RLS!")
-                                with st.expander("Dados retornados pelo banco:"):
+                            # 🚨 VALIDAÇÃO ATÔMICA: Se o RLS barrou, o retorno virá vazio. 
+                            # Nós interrompemos o script aqui e NÃO mudamos o status da RM para 2.
+                            if not resposta_log.data or len(resposta_log.data) == 0:
+                                st.error("❌ **Falha Crítica de Persistência:** O LOG de segurança não pôde ser salvo!")
+                                st.warning("💡 Causa provável: A tabela 'api_log_rm' está com o RLS ativo no painel do Supabase. Desative o RLS ou crie uma política de gravação pública.")
+                                with st.expander("Inspecionar metadados de retorno vazios do banco:"):
                                     st.write(resposta_log)
+                                st.stop()
+                            
+                            # 🚨 PASSO 2: Apenas se passou na validação acima, altera o status_rm para 2
+                            resposta_update = supabase.table("api_rm")\
+                                .update({"status_rm": 2})\
+                                .in_("id", ids_para_aprovar)\
+                                .execute()
+                            
+                            if resposta_update.data:
+                                st.balloons()
+                                st.success(f"🎉 Perfeito! LOG gravado na tabela api_log_rm e RM {num_rm} aprovada para Status 2.")
+                                st.rerun()
                                     
                         except Exception as error_up:
-                            st.error(f"❌ Erro crítico ao gravar na tabela api_log_rm!")
-                            with st.expander("Clique aqui para ver o erro técnico detalhado"):
+                            st.error(f"❌ Erro crítico de comunicação transacional com o Supabase!")
+                            with st.expander("Ver erro técnico detalhado"):
                                 st.code(str(error_up))
                             st.stop()
             else:
