@@ -26,9 +26,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.divider()
 
-# ==========================================
 # REQUISIÇÃO DOS DADOS (STATUS_RM == 2)
-# ==========================================
 with st.spinner("Buscando requisições aprovadas na fila (Status 2)..."):
     try:
         resposta_rm = supabase.table("api_rm").select("*").eq("status_rm", 2).execute()
@@ -39,10 +37,8 @@ with st.spinner("Buscando requisições aprovadas na fila (Status 2)..."):
     except Exception as e:
         st.error(f"Erro ao consultar a fila no Supabase: {e}")
         dados_fila, dados_materiais = [], []
-
-# ==========================================
+        
 # PROCESSAMENTO DOS DADOS COM PANDAS
-# ==========================================
 if dados_fila:
     df_rm = pd.DataFrame(dados_fila)
     df_mat = pd.DataFrame(dados_materiais)
@@ -91,22 +87,36 @@ if dados_fila:
             st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
             
             # BOTÃO DE EXECUÇÃO DA INTEGRAÇÃO
+                        # BOTÃO DE EXECUÇÃO DA INTEGRAÇÃO
             if st.button(f"⚡ Enviar e Integrar RM {num_rm} na API Externa", key=f"btn_integrar_{num_rm}", use_container_width=True, type="primary"):
                 with st.spinner("Processando chamadas HTTP externas da subrotina..."):
                     
                     # Puxa o Bearer token que salvamos lá na sessão do login.py
                     token_sessao = st.session_state.get("token")
                     
-                    # 🚀 EXECUTA A LÓGICA ISOLADA DO ARQUIVO API_ENVIO.PY
+                    # EXECUTA A LÓGICA ISOLADA DO ARQUIVO API_SET_RM.PY
                     resultado = processar_e_enviar_api_externa(num_rm, df_rm_atual, token_sessao)
                     
+                    # 🔍 NOVO BLOCO DE TRATAMENTO DE RETORNO VISUAL:
                     if resultado.get("sucesso"):
                         st.success(resultado.get("mensagens"))
                         
-                        # 🔹 PASSO ADICIONAL AUTOMÁTICO: Após integrar na API externa com sucesso,
-                        # você pode dar um update para mudar o status para 3 (Atendido) no Supabase!
-                        supabase.table("api_rm").update({"status_rm": 3}).eq("n_rm", num_rm).execute()
-                        st.rerun()
+                        # Altera o status_rm para 3 após o sucesso total da integração
+                        try:
+                            supabase.table("api_rm").update({"status_rm": 3}).eq("n_rm", num_rm).execute()
+                            st.balloons()
+                            st.rerun()
+                        except Exception as error_status:
+                            st.error(f"❌ Erro ao mudar status da RM {num_rm} para 3 no Supabase: {error_status}")
+                    else:
+                        # 🚨 CAPTURA O ERRO OCULTO: Se a integração falhar, abre um alerta vermelho com o motivo
+                        st.error("❌ **Falha na Integração da RM!**")
+                        st.warning(resultado.get("mensagens"))
+                        
+                        # Cria uma caixa expandível para inspecionar possíveis logs de retorno do servidor
+                        if "detalhes" in resultado:
+                            with st.expander("Inspecionar erro técnico completo do servidor"):
+                                st.code(resultado.get("detalhes"))
 
 else:
     st.info("✨ Tudo em dia! Nenhuma requisição com Status 2 localizada na fila de integração.")
