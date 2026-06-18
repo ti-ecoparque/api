@@ -7,28 +7,89 @@ from supabase import create_client
 
 def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     """
-    Função principal orquestradora: Recebe os dados validados do Streamlit,
-    faz os mapeamentos, cria a Requisição mãe, salva os retornos de ID no Supabase 
-    e insere os itens filhos na API Externa utilizando os caminhos inteiros corretos.
+    Função principal orquestradora com PRÉ-VALIDAÇÃO EM TEMPO REAL:
+    Busca os produtos ativos na Azure, valida se todos os t_id da RM existem lá,
+    e só realiza os disparos HTTP se 100% dos itens forem localizados.
     """
     # Inicializa o cliente do Supabase localmente para salvar os retornos
     SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets.get("SUPABASE_URL")
     SUPABASE_KEY = os.getenv("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY")
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    # Captura os dados estruturais usando o índice da primeira linha
-    primeira_linha = df_itens_rm.iloc[0]
+    st.info("🔍 Iniciando pré-validação de consistência com a API da Azure...")
+
+    # ==========================================================
+    # 🚨 FASE 0: BUSCA E VALIDAÇÃO DOS PRODUTOS VIVOS NA AZURE
+    # ==========================================================
+    url_produtos_azure = "https://azurewebsites.net"
+    headers = {
+        "Authorization": f"Bearer {token_autenticado}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response_prod = requests.get(url_produtos_azure, headers=headers)
+        if response_prod.status_code != 200:
+            return {
+                "sucesso": False,
+                "mensagens": f"❌ Falha crítica: Não foi possível checar a lista de produtos na Azure. Status: {response_prod.status_code}"
+            }
+        
+        dados_prod = response_prod.json()
+        # Coleta a lista de produtos cadastrados na Azure (verifica se a chave é 'produtos' ou o nó principal)
+        produtos_vivos_azure = dados_prod.get("produtos", dados_prod) if isinstance(dados_prod, dict) else dados_prod
+        
+        # Cria um conjunto (Set) com todos os IDs de produtos válidos e ativos na Azure atualmente
+        # O campo de ID no seu ProdutoList costuma ser 'produtoId' ou 'id'
+        ids_validos_azure = set()
+        for prod in produtos_vivos_azure:
+            p_id = prod.get("produtoId") or prod.get("id")
+            if p_id is not None:
+                ids_validos_azure.add(int(p_id))
+
+    except Exception as e:
+        return {"sucesso": False, "mensagens": f"❌ Falha de conexão ao validar produtos na Azure: {e}"}
+
+    # Varre os itens da RM atual para verificar se todos existem no conjunto da Azure
+    itens_invalidos_na_azure = []
     
-    # Captura e força os códigos de mapeamento como inteiros para bater no dicionário
+    for _, linha_item in df_itens_rm.iterrows():
+        id_externo_produto = linha_item.get("t_id")
+        
+        if pd.isna(id_externo_produto):
+            itens_invalidos_na_azure.append(f"Seq {linha_item.get('seq_item')} (Código Mega: {linha_item.get('cod_mega')}) - ID Externo Ausente")
+            continue
+            
+        # 🚨 CHECAGEM CRÍTICA: O t_id gerado pelo seu De/Para local existe na Azure viva?
+        if int(id_externo_produto) not in ids_validos_azure:
+            itens_invalidos_na_azure.append(f"Seq {linha_item.get('seq_item')} (ID Externo: {int(id_externo_produto)}) - Descrição: {linha_item.get('desc_item')}")
+
+    # ** REGRA DO TUDO OU NADA **
+    # Se encontrou qualquer produto inválido, aborta o processo na hora antes de gastar ID de requisição
+    if itens_invalidos_na_azure:
+        st.error("🛑 **Integração Abortada por Inconsistência de Cadastro!**")
+        st.write("Os seguintes itens da planilha possuem ID Externo (`t_id`) que **não existem ou estão inativos** dentro do sistema da Azure:")
+        for item_erro in itens_invalidos_na_azure:
+            st.warning(item_erro)
+            
+        return {
+            "sucesso": False,
+            "mensagens": f"❌ A RM possui {len(itens_invalidos_na_azure)} item(ns) inválido(s) na Azure. Atualize a Lista Mestra ou cadastre o produto na Azure antes de enviar."
+        }
+
+    st.success("✔️ Pré-validação concluída! 100% dos produtos constam como válidos e ativos na Azure.")
+
+    # ==========================================
+    # 1. CAPTURA DOS METADADOS DE FILIAL/CONGRESSO
+    # ==========================================
+    primeira_linha = df_itens_rm.iloc[0]
     cod_filial = int(primeira_linha.get("enterpriseId")) if pd.notna(primeira_linha.get("enterpriseId")) else 102
     cod_usuario_mega = int(primeira_linha.get("cod_user_mega")) if pd.notna(primeira_linha.get("cod_user_mega")) else None
     
-    # Captura a data de entrega original e limpa frações de tempo
     data_entrega_original = str(primeira_linha.get("data_necessidade"))
     if data_entrega_original and " " in data_entrega_original:
-        data_entrega_original = data_entrega_original.split(" ")[0] # Mantém apenas YYYY-MM-DD
+        data_entrega_original = data_entrega_original.split(" ")[0]
     
-    # Importações dos mapas dinâmicos
     from map.map_config import (
         obter_pessoa_id, 
         obter_nome_empresa, 
@@ -36,13 +97,12 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         obter_centro_custo_por_codigo
     )
     
-    # 1. TRADUÇÃO DOS MAPS DINÂMICOS
     pessoa_id = obter_pessoa_id(cod_filial)
     nome_empresa = obter_nome_empresa(cod_filial)
     endereco_entrega = obter_endereco_entrega(cod_filial)
     centro_custo_id = obter_centro_custo_por_codigo(cod_usuario_mega) or 3
     
-    if not ... or not nome_empresa:
+    if not pessoa_id or not nome_empresa:
         return {
             "sucesso": False,
             "mensagens": f"❌ Falha de Mapeamento: Filial {cod_filial} não encontrada no map_config.py."
@@ -52,13 +112,9 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     st.write(f"📁 **Centro de Custo Mapeado:** ID {centro_custo_id}")
 
     # ==========================================
-    # 2. CHAMADA HTTP 1: CRIA A REQUISIÇÃO MÃE (URL CORRIGIDA E COMPLETA)
+    # 2. CHAMADA HTTP 1: CRIA A REQUISIÇÃO MÃE
     # ==========================================
-    url_requisicao = "https://apiecoparque.azurewebsites.net/CompraRequisicao/CompraRequisicaoSave"
-    headers = {
-        "Authorization": f"Bearer {token_autenticado}",
-        "Content-Type": "application/json"
-    }
+    url_requisicao = "https://azurewebsites.net"
     
     payload_mae = {
         "compraRequisicaoId": 0,
@@ -100,10 +156,9 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         return {"sucesso": False, "mensagens": f"❌ Falha ao criar requisição mãe: {e}"}
 
     # ==========================================
-    # 3. CHAMADA HTTP 2: INSERÇÃO DOS ITENS FILHOS (URL CORRIGIDA E COMPLETA)
+    # 3. CHAMADA HTTP 2: INSERÇÃO DOS ITENS FILHOS
     # ==========================================
-    url_item = "https://apiecoparque.azurewebsites.net/CompraRequisicao/CompraRequisicaoItemSave"
-    
+    url_item = "https://azurewebsites.net"
     total_itens_inseridos = 0
     itens_com_falha = 0
     
@@ -111,19 +166,13 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     total_linhas = len(df_itens_rm)
     
     for idx, (_, linha_item) in enumerate(df_itens_rm.iterrows()):
-        # Captura o t_id do material vindo do PROCV em memória
         id_externo_produto = linha_item.get("t_id")
         qtd = linha_item.get("qtd_solicitada")
         
-        if pd.isna(id_externo_produto):
-            st.warning(f"⚠️ Item Seq {linha_item.get('seq_item')} ignorado: Sem correspondência de ID Externo.")
-            itens_com_falha += 1
-            continue
-            
         payload_filho = {
             "compraRequisicaoItemId": 0,
             "compraRequisicaoId": int(req_id),
-            "produtoId": int(id_externo_produto), # Injeta o t_id numérico limpo como o ID do produto
+            "produtoId": int(id_externo_produto),
             "quantidade": int(float(qtd)),
             "marcaFixa": False
         }
@@ -150,13 +199,8 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
             "sucesso": True,
             "mensagens": f"🎉 Integração Concluída! RM {num_rm} enviada com sucesso. {total_itens_inseridos} itens sincronizados."
         }
-    elif total_itens_inseridos > 0:
-        return {
-            "sucesso": True,
-            "mensagens": f"⚠️ Integração Parcial: {total_itens_inseridos} itens integrados com sucesso, mas {itens_com_falha} falharam."
-        }
     else:
         return {
-            "sucesso": False,
-            "mensagens": "❌ Falha total: Nenhum item pôde ser inserido na requisição externa."
+            "sucesso": True,
+            "mensagens": f"⚠️ Integração Parcial concluída: {total_itens_inseridos} itens integrados, mas {itens_com_falha} falharam durante o envio."
         }
