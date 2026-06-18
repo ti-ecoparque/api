@@ -182,5 +182,20 @@ if dados_rm:
             else:
                 st.error(f"❌ **Aprovação Bloqueada:** Existem **{contagem_bloqueados}** item(ns) pendentes no De/Para.")
                 st.button(f"🔒 RM {num_rm} Bloqueada ({contagem_bloqueados} pendências)", key=f"btn_bloqueado_{num_rm}", disabled=True, use_container_width=True)
+
+    
+if st.button("TESTE INSERT"):
+    teste = supabase.table("api_log_rm").insert({
+        "id_api_rm": 999,
+        "n_rm": 999,
+        "cod_solicitacao_mega": 999,
+        "cod_mega": 999,
+        "t_item": "TESTE",
+        "m_descricao_do_item": "TESTE",
+        "usuario_logado": "TESTE"
+    }).execute()
+
+    st.write(teste)
+
 else:
     st.info("Nenhuma requisição pendente (Status 1) foi localizada no banco.")
