@@ -4,7 +4,7 @@ import os
 from supabase import create_client
 
 # Importa a lógica isolada do seu novo arquivo de envio
-from api_envio import processar_e_enviar_api_externa
+from importar_rm import processar_e_enviar_api_externa
 
 # 1. CONFIGURAÇÃO E TRAVA DE SEGURANÇA
 if "logado" not in st.session_state or not st.session_state.logado:
