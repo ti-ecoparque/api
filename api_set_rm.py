@@ -5,31 +5,18 @@ import sys
 import pandas as pd
 from supabase import create_client
 
-# Garante o mapeamento de pastas para localizar o 'map_config' dentro do projeto
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-if BASE_DIR not in sys.path:
-    sys.path.append(BASE_DIR)
-
-# Importa as funções auxiliares de mapeamento corporativo do seu map/map_config.py
-from map.map_config import (
-    obter_pessoa_id, 
-    obter_nome_empresa, 
-    obter_endereco_entrega, 
-    obter_centro_custo_por_codigo
-)
-
 def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     """
     Função principal orquestradora: Recebe os dados validados do Streamlit,
     faz os mapeamentos, cria a Requisição mãe, salva os retornos de ID no Supabase 
-    e insere os itens filhos na API Externa.
+    e insere os itens filhos na API Externa utilizando os caminhos inteiros corretos.
     """
     # Inicializa o cliente do Supabase localmente para salvar os retornos
     SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets.get("SUPABASE_URL")
     SUPABASE_KEY = os.getenv("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY")
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    # Como os cabeçalhos de Filial e Usuário são idênticos para toda a RM, pegamos da primeira linha
+    # Captura os dados estruturais usando o índice da primeira linha
     primeira_linha = df_itens_rm.iloc[0]
     
     # Captura e força os códigos de mapeamento como inteiros para bater no dicionário
@@ -41,13 +28,21 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     if data_entrega_original and " " in data_entrega_original:
         data_entrega_original = data_entrega_original.split(" ")[0] # Mantém apenas YYYY-MM-DD
     
+    # Importações dos mapas dinâmicos
+    from map.map_config import (
+        obter_pessoa_id, 
+        obter_nome_empresa, 
+        obter_endereco_entrega, 
+        obter_centro_custo_por_codigo
+    )
+    
     # 1. TRADUÇÃO DOS MAPS DINÂMICOS
     pessoa_id = obter_pessoa_id(cod_filial)
     nome_empresa = obter_nome_empresa(cod_filial)
     endereco_entrega = obter_endereco_entrega(cod_filial)
-    centro_custo_id = obter_centro_custo_por_codigo(cod_usuario_mega) or 3 # Fallback Admin caso venha nulo
+    centro_custo_id = obter_centro_custo_por_codigo(cod_usuario_mega) or 3
     
-    if not pessoa_id or not nome_empresa:
+    if not ... or not nome_empresa:
         return {
             "sucesso": False,
             "mensagens": f"❌ Falha de Mapeamento: Filial {cod_filial} não encontrada no map_config.py."
@@ -57,10 +52,9 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     st.write(f"📁 **Centro de Custo Mapeado:** ID {centro_custo_id}")
 
     # ==========================================
-    # 2. CHAMADA HTTP 1: CRIA A REQUISIÇÃO MÃE
+    # 2. CHAMADA HTTP 1: CRIA A REQUISIÇÃO MÃE (URL CORRIGIDA E COMPLETA)
     # ==========================================
     url_requisicao = "https://apiecoparque.azurewebsites.net/CompraRequisicao/CompraRequisicaoSave"
-    
     headers = {
         "Authorization": f"Bearer {token_autenticado}",
         "Content-Type": "application/json"
@@ -92,9 +86,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         
         st.write(f"✅ **Requisição Gerada na Azure!** ID: `{req_id}` | Nº: `{num_sequencial}`")
         
-        # ==================================================================
-        # HISTÓRICO DE RETORNO: SALVA OS IDS GERADOS PELA API NO SUPABASE
-        # ==================================================================
+        # HISTÓRICO DE RETORNO NO SUPABASE
         dados_historico = {
             "n_rm": int(num_rm),
             "compra_requisicao_id": int(req_id),
@@ -108,9 +100,10 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         return {"sucesso": False, "mensagens": f"❌ Falha ao criar requisição mãe: {e}"}
 
     # ==========================================
-    # 3. CHAMADA HTTP 2: INSERÇÃO DOS ITENS FILHOS
+    # 3. CHAMADA HTTP 2: INSERÇÃO DOS ITENS FILHOS (URL CORRIGIDA E COMPLETA)
     # ==========================================
-    url_item = "https://azurewebsites.net"
+    url_item = "https://apiecoparque.azurewebsites.net/CompraRequisicao/CompraRequisicaoItemSave"
+    
     total_itens_inseridos = 0
     itens_com_falha = 0
     
@@ -118,7 +111,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     total_linhas = len(df_itens_rm)
     
     for idx, (_, linha_item) in enumerate(df_itens_rm.iterrows()):
-        # Captura o t_id (ID do produto na API destino) que veio do PROCV da api_materiais
+        # Captura o t_id do material vindo do PROCV em memória
         id_externo_produto = linha_item.get("t_id")
         qtd = linha_item.get("qtd_solicitada")
         
@@ -130,7 +123,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         payload_filho = {
             "compraRequisicaoItemId": 0,
             "compraRequisicaoId": int(req_id),
-            "produtoId": int(id_externo_produto), # Enviando o t_id correspondente
+            "produtoId": int(id_externo_produto), # Injeta o t_id numérico limpo como o ID do produto
             "quantidade": int(float(qtd)),
             "marcaFixa": False
         }
@@ -139,6 +132,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
             response_filho = requests.post(url_item, json=payload_filho, headers=headers)
             if response_filho.status_code == 200:
                 total_itens_inseridos += 1
+                st.write(f"🔹 Item {idx+1}/{total_linhas} integrado → ProdutoID: {id_externo_produto}")
             else:
                 st.error(f"❌ Falha ao inserir ProdutoID {id_externo_produto}: {response_filho.text}")
                 itens_com_falha += 1
@@ -154,12 +148,12 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     if total_itens_inseridos > 0 and itens_com_falha == 0:
         return {
             "sucesso": True,
-            "mensagens": f"🎉 Integração Concluída! RM {num_rm} integrada e salva. {total_itens_inseridos} itens sincronizados."
+            "mensagens": f"🎉 Integração Concluída! RM {num_rm} enviada com sucesso. {total_itens_inseridos} itens sincronizados."
         }
     elif total_itens_inseridos > 0:
         return {
             "sucesso": True,
-            "mensagens": f"⚠️ Integração Parcial: {total_itens_inseridos} itens sincronizados, mas {itens_com_falha} falharam."
+            "mensagens": f"⚠️ Integração Parcial: {total_itens_inseridos} itens integrados com sucesso, mas {itens_com_falha} falharam."
         }
     else:
         return {
