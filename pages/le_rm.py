@@ -55,8 +55,8 @@ with st.spinner("Carregando RMs pendentes..."):
         query_rm = supabase.table("api_rm").select("*").eq("status_rm", 1)
         
         if len(st.session_state.filtro_datas_input) == 2:
-            query_rm = query_rm.gte("data_necessidade", st.session_state.filtro_datas_input.strftime("%Y-%m-%d"))\
-                               .lte("data_necessidade", st.session_state.filtro_datas_input.strftime("%Y-%m-%d"))
+            query_rm = query_rm.gte("data_necessidade", st.session_state.filtro_datas_input[0].strftime("%Y-%m-%d"))\
+                               .lte("data_necessidade", st.session_state.filtro_datas_input[1].strftime("%Y-%m-%d"))
             
         res_rm = query_rm.execute()
         dados_rm = res_rm.data
@@ -92,7 +92,7 @@ if dados_rm:
     
     # Seções por RM
     for num_rm in rms_unicas:
-        df_rm_atual = df_consolidado[df_consolidado["n_rm"] == num_rm]
+        df_rm_atual = df_consolidado[df_consolidated["n_rm"] == num_rm]
         
         with st.expander(f"📦 REQUISIÇÃO DE MATERIAL - RM Nº {num_rm} ({len(df_rm_atual)} itens)", expanded=True):
             linhas_tabela = []
@@ -137,14 +137,18 @@ if dados_rm:
                 st.success(f"✔️ Todos os itens da RM {num_rm} foram validados com sucesso no De/Para.")
                 
                 if st.button(f"🚀 Aprovar RM {num_rm}", key=f"btn_aprovar_{num_rm}", use_container_width=True, type="primary"):
-                    # 🔹 CORREÇÃO AQUI: Mudado de St.spinner para st.spinner (minúsculo)
                     with st.spinner(f"Gravando LOG e salvando aprovação da RM {num_rm}..."):
+                        
+                        if not lista_logs_para_salvar:
+                            st.error("Erro interno: A lista de LOGS está vazia!")
+                            st.stop()
+                        
                         try:
-                            # 🚨 PASSO 1: Grava o instantâneo na tabela de LOGS
+                            # 🚨 PASSO 1: Tenta gravar na tabela de LOGS
                             resposta_log = supabase.table("api_log_rm").insert(lista_logs_para_salvar).execute()
                             
-                            if resposta_log.data:
-                                # 🚨 PASSO 2: Avança o status para 2 se o LOG persistiu com sucesso
+                            # 🚨 PASSO 2: Avança o status para 2 se o LOG persistiu com sucesso
+                            if resposta_log.data and len(resposta_log.data) > 0:
                                 resposta_update = supabase.table("api_rm")\
                                     .update({"status_rm": 2})\
                                     .in_("id", ids_para_aprovar)\
@@ -155,9 +159,15 @@ if dados_rm:
                                     st.success(f"🎉 Sucesso! LOG gerado na tabela api_log_rm e RM {num_rm} aprovada.")
                                     st.rerun()
                             else:
-                                st.error("Falha de segurança: A API do Supabase recusou a gravação do LOG.")
+                                st.error("⚠️ O Supabase aceitou a chamada mas retornou uma lista vazia para api_log_rm. Verifique as políticas RLS!")
+                                with st.expander("Dados retornados pelo banco:"):
+                                    st.write(resposta_log)
+                                    
                         except Exception as error_up:
-                            st.error(f"Erro transacional no Supabase: {error_up}")
+                            st.error(f"❌ Erro crítico ao gravar na tabela api_log_rm!")
+                            with st.expander("Clique aqui para ver o erro técnico detalhado"):
+                                st.code(str(error_up))
+                            st.stop()
             else:
                 st.error(f"❌ **Aprovação Bloqueada:** Existem **{contagem_bloqueados}** item(ns) pendentes no De/Para.")
                 st.button(f"🔒 RM {num_rm} Bloqueada ({contagem_bloqueados} pendências)", key=f"btn_bloqueado_{num_rm}", disabled=True, use_container_width=True)
