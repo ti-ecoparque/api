@@ -29,61 +29,96 @@ st.divider()
 # ==========================================
 with st.spinner("Buscando requisições aprovadas na fila (Status 2)..."):
     try:
-        # Puxa todas as linhas prontas para a integração externa
-        resposta = supabase.table("api_rm").select("*").eq("status_rm", 2).execute()
-        dados_fila = resposta.data
+        # 1. Puxa todas as linhas prontas para a integração externa (Status 2)
+        resposta_rm = supabase.table("api_rm").select("*").eq("status_rm", 2).execute()
+        dados_fila = resposta_rm.data
+        
+        # 2. Puxa os dados da tabela mestra para resgatar o t_id e t_item solicitados
+        resposta_materiais = supabase.table("api_materiais").select("m_coditem, t_id, t_item").execute()
+        dados_materiais = resposta_materiais.data
+        
     except Exception as e:
         st.error(f"Erro ao consultar a fila no Supabase: {e}")
-        dados_fila = []
+        dados_fila, dados_materiais = [], []
 
 # ==========================================
-# PROCESSAMENTO VISUAL POR RM
+# PROCESSAMENTO DOS DADOS COM PANDAS
 # ==========================================
 if dados_fila:
-    df_fila = pd.DataFrame(dados_fila)
+    df_rm = pd.DataFrame(dados_fila)
+    df_mat = pd.DataFrame(dados_materiais)
     
-    # Identifica quais RMs únicas estão na fila de envio para criar os blocos na tela
-    rms_na_fila = sorted(df_fila["n_rm"].dropna().unique())
+    # Padroniza as colunas de cruzamento como Inteiros limpos
+    df_rm["cod_mega"] = pd.to_numeric(df_rm["cod_mega"], errors="coerce").astype("Int64")
+    if not df_mat.empty:
+        df_mat["m_coditem"] = pd.to_numeric(df_mat["m_coditem"], errors="coerce").astype("Int64")
+        
+    # Realiza o PROCV em memória trazendo t_id e t_item da tabela mestra baseado no cod_mega
+    if not df_mat.empty:
+        df_consolidado = pd.merge(df_rm, df_mat, left_on="cod_mega", right_on="m_coditem", how="left")
+    else:
+        df_consolidado = df_rm.copy()
+        df_consolidado["t_id"] = None
+        df_consolidado["t_item"] = None
+
+    # TRATAMENTO DE DATAS BRASIL (DD/MM/YYYY)
+    # Converte o formato do banco ISO e remove as strings extras de fuso horário
+    if "data_necessidade" in df_consolidado.columns:
+        df_consolidado["data_necessidade_br"] = pd.to_datetime(df_consolidado["data_necessidade"], errors="coerce").dt.strftime("%d/%m/%Y")
+    else:
+        df_consolidado["data_necessidade_br"] = "---"
+
+    # Identifica quais RMs únicas estão prontas para criar os blocos visuais na tela
+    rms_na_fila = sorted(df_consolidado["n_rm"].dropna().unique())
     
     st.info(f"📦 Encontrada(s) **{len(rms_na_fila)}** RM(s) aguardando envio para a API externa.")
     
-    # Laço que gera uma seção visual e um botão para cada RM de forma isolada
+    # ==========================================
+    # RENDERIZAÇÃO DAS SEÇÕES POR RM VIA LOOP
+    # ==========================================
     for num_rm in rms_na_fila:
-        # Filtra o DataFrame trazendo apenas os itens desta RM específica
-        df_rm_atual = df_fila[df_fila["n_rm"] == num_rm]
+        # Filtra o DataFrame consolidado trazendo apenas as linhas pertencentes a esta RM específica
+        df_rm_atual = df_consolidado[df_consolidado["n_rm"] == num_rm]
         
         with st.expander(f"📋 RM Nº {num_rm} — Fila de Envio ({len(df_rm_atual)} itens)", expanded=True):
             
-            # Monta a tabela limpa para exibição na tela
+            # Estrutura a tabela de colunas final contendo as novas solicitações e as ordens alteradas
             linhas_tabela = []
             for _, linha in df_rm_atual.iterrows():
+                
+                # Tratamento do ID Externo (t_id) para remover decimais residuais do Pandas (.0)
+                id_externo_limpo = int(linha["t_id"]) if pd.notna(linha.get("t_id")) else "---"
+                
                 linhas_tabela.append({
-                    "ID": linha.get("id"),
+                    # "ID": linha.get("id"),                             # ❌ Ocultado conforme solicitado
+                    # "Cód. Solicitação": linha.get("cod_solicitacao_mega"), # ❌ Ocultado conforme solicitado
                     "Seq": linha.get("seq_item"),
-                    "Cód. Solicitação": linha.get("cod_solicitacao_mega"),
+                    "ID Externo": id_externo_limpo,                      # 🏢 t_id vindo da api_materiais
                     "Código Mega": linha.get("cod_mega"),
+                    "Descrição Externa": linha.get("t_item") if pd.notna(linha.get("t_item")) else "---",  # 📝 t_item vindo da api_materiais
                     "Descrição do Item": linha.get("desc_item"),
                     "Qtd Solicitada": linha.get("qtd_solicitada"),
-                    "Data Necessidade": linha.get("data_necessidade")
+                    "Data Necessidade": linha.get("data_necessidade_br") # 🇧🇷 Data formatada em português brasileiro
                 })
                 
+            # Gera o DataFrame visual ordenado sequencialmente pelos itens da RM
             df_exibicao = pd.DataFrame(linhas_tabela).sort_values(by="Seq")
             st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
             
-            # 🔹 SEU BOTÃO INDIVIDUALIZADO POR RM:
-            # A chave 'key' garante que cada botão na tela seja único baseado no número da RM
+            # ⚡ BOTÃO INDIVIDUALIZADO POR BLOCO DE RM
             if st.button(f"⚡ Enviar e Integrar RM {num_rm} na API Externa", key=f"btn_integrar_{num_rm}", use_container_width=True, type="primary"):
                 
-                # -------------------------------------------------------------
-                # ESPAÇO RESERVADO PARA A SUA GRANDE LÓGICA DE INTEGRAÇÃO
-                # -------------------------------------------------------------
-                st.subheader(f"🛠️ Executando Processamento da RM {num_rm}...")
+                st.subheader(f"🛠️ Iniciando Processamento e chamadas HTTP da RM {num_rm}...")
                 
-                # Exemplo de como você vai percorrer as linhas dessa RM no próximo passo:
+                # -------------------------------------------------------------
+                # ESPAÇO RESERVADO PARA A SUA GRANDE LÓGICA DE CHAMADAS HTTP (POST / SET)
+                # -------------------------------------------------------------
+                # Exemplo de como você vai ler cada linha contendo o ID Externo (t_id) e Código do Mega:
                 # for _, linha_item in df_rm_atual.iterrows():
-                #     ... aqui faremos a sua Procv com a tabela mestra e chamadas HTTP POST/SET ...
+                #     id_externo_chamada = linha_item.get("t_id")
+                #     ... aqui faremos a montagem do payload e o requests.post para a API destino ...
                 
-                st.warning("Área reservada para inclusão da lógica de chamada HTTP externa.")
+                st.warning("Área estruturada aguardando a inclusão das regras de envio das chamadas HTTP externas.")
                 # -------------------------------------------------------------
 
 else:
