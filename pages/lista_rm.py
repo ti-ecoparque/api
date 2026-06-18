@@ -49,7 +49,7 @@ with st.spinner("Buscando dados no banco..."):
         
         # 2. Busca a tabela mestra inteira para cruzar em memória
         res_materiais = supabase.table("api_materiais").select("m_coditem, m_descricao_do_item").execute()
-        dados_materiais = res_materials = res_materiais.data
+        dados_materiais = res_materiais.data  # <-- Variável corrigida aqui de forma limpa
         
     except Exception as e:
         st.error(f"Erro ao consultar o banco de dados: {e}")
@@ -61,9 +61,9 @@ with st.spinner("Buscando dados no banco..."):
 if dados_rm:
     # Transforma os dados em DataFrames do Pandas
     df_rm = pd.DataFrame(dados_rm)
-    df_mat = pd.DataFrame(dados_materials)
+    df_mat = pd.DataFrame(dados_materiais)  # <-- Chamada corrigida aqui
     
-    # Força os códigos de comparação a serem do mesmo tipo (Texto ou Inteiro limpo)
+    # Força os códigos de comparação a serem do mesmo tipo (Inteiro limpo)
     df_rm['cod_solicitacao_mega'] = pd.to_numeric(df_rm['cod_solicitacao_mega'], errors='coerce').astype('Int64')
     if not df_mat.empty:
         df_mat['m_coditem'] = pd.to_numeric(df_mat['m_coditem'], errors='coerce').astype('Int64')
