@@ -92,7 +92,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         st.write(f"✅ **Requisição Gerada na Azure!** ID: `{req_id}` | Nº: `{num_sequencial}`")
         
         # ==================================================================
-        # 🌟 HISTÓRICO DE RETORNO: SALVA OS IDS GERADOS PELA API NO SUPABASE
+        # HISTÓRICO DE RETORNO: SALVA OS IDS GERADOS PELA API NO SUPABASE
         # ==================================================================
         dados_historico = {
             "n_rm": int(num_rm),
@@ -102,7 +102,6 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         }
         supabase.table("api_integracao_sucesso").insert(dados_historico).execute()
         st.write("💾 **Vínculo de IDs persistido com sucesso na tabela api_integracao_sucesso!**")
-        # ==================================================================
         
     except Exception as e:
         return {"sucesso": False, "mensagens": f"❌ Falha ao criar requisição mãe: {e}"}
