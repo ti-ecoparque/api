@@ -59,7 +59,8 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     # ==========================================
     # 2. CHAMADA HTTP 1: CRIA A REQUISIÇÃO MÃE
     # ==========================================
-    url_requisicao = "https://azurewebsites.net"
+    url_requisicao = "https://apiecoparque.azurewebsites.net/CompraRequisicao/CompraRequisicaoSave"
+    
     headers = {
         "Authorization": f"Bearer {token_autenticado}",
         "Content-Type": "application/json"
