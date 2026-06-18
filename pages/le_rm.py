@@ -1,14 +1,15 @@
 import streamlit as st
 import pandas as pd
+import unicodedata
 import os
 from supabase import create_client
 
-# 1. CONFIGURAÇÃO E TRAVA DE SEGURANÇA (Obrigatórios no topo)
+# 1. CONFIGURAÇÃO E TRAVA DE SEGURANÇA (Primeiros comandos obrigatórios)
 if "logado" not in st.session_state or not st.session_state.logado:
     st.warning("⚠️ Acesso negado. Por favor, faça login na tela inicial antes de continuar.")
     st.stop()
 
-st.title("📋 Lista e Validação de RMs")
+st.title("📋 Leitura e Tratamento de RMs")
 st.write(f"Conectado como: **{st.session_state.get('usuario_email')}**")
 
 # 2. CONEXÃO COM O SUPABASE
@@ -21,181 +22,123 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ==========================================
-# LÓGICA DE FILTROS DE DATAS
-# ==========================================
-if "filtro_datas_input" not in st.session_state:
-    st.session_state.filtro_datas_input = []
+# --- FUNÇÕES DE TRATAMENTO DE TEXTO E COLUNAS ---
+def normalizar_texto(texto):
+    texto = str(texto)
+    texto = unicodedata.normalize('NFKD', texto)
+    texto = texto.encode('ASCII', 'ignore').decode('utf-8')
+    return texto.strip().lower()
 
-def limpar_filtros():
-    st.session_state.filtro_datas_input = []
+def tratar_dados(df):
+    df.columns = [normalizar_texto(col) for col in df.columns]
+    df.rename(columns={
+        'quantidade solicitada': 'QTD_SOLICITADA',
+        'descricao do item':     'DESC_ITEM',
+        'data de necessidade':   'DATA_NECESSIDADE',
+        'usuario solicitante':   'USER_SOLICITACAO',
+        'usuario de inclusao':   'COD_USER_MEGA',
+        'especificacao':         'OBS_ITEM',
+        'codigo do item':        'COD_MEGA',
+        'codigo da solicitacao': 'COD_SOLICITACAO_MEGA',
+        'nr. rm':                'N_RM',
+        'sequencial do item':    'SEQ_ITEM'
+    }, inplace=True)
 
-st.divider()
-st.subheader("🔍 Filtros de Busca")
+    # Validação rígida de colunas obrigatórias exigidas pela tabela api_rm
+    colunas_finais_obrigatorias = ['COD_SOLICITACAO_MEGA', 'DESC_ITEM', 'QTD_SOLICITADA', 'N_RM', 'SEQ_ITEM']
 
-with st.form("form_filtros_busca"):
-    filtro_datas = st.date_input(
-        "Período da Data de Necessidade (Opcional)", 
-        value=st.session_state.filtro_datas_input,
-        key="datas_temporarias",
-        format="DD/MM/YYYY"
-    )
-    buscar = st.form_submit_button("🔍 Filtrar por Data", use_container_width=True)
+    for col in colunas_finais_obrigatorias:
+        if col not in df.columns:
+            st.error(f"❌ Coluna obrigatória não encontrada no arquivo: `{col}`")
+            return None
 
-st.button("🧹 Limpar Filtros", on_click=limpar_filtros, use_container_width=True)
+    # Remove linhas que não possuem dados fundamentais
+    df = df.dropna(subset=['DESC_ITEM', 'QTD_SOLICITADA', 'N_RM', 'SEQ_ITEM'])
 
-if buscar:
-    st.session_state.filtro_datas_input = filtro_datas
+    # 🔹 CORREÇÃO DE INTEIROS: Remove o ".0" limpando os identificadores e chaves do banco
+    df['COD_SOLICITACAO_MEGA'] = pd.to_numeric(df['COD_SOLICITACAO_MEGA'], errors='coerce').astype('Int64')
+    df['COD_MEGA'] = pd.to_numeric(df['COD_MEGA'], errors='coerce').astype('Int64')
+    df['N_RM'] = pd.to_numeric(df['N_RM'], errors='coerce').astype('Int64')
+    df['SEQ_ITEM'] = pd.to_numeric(df['SEQ_ITEM'], errors='coerce').astype('Int64')
+    
+    df['DESC_ITEM'] = df['DESC_ITEM'].astype(str).str.strip()
+    df['QTD_SOLICITADA'] = pd.to_numeric(df['QTD_SOLICITADA'], errors='coerce')
+    df = df[df['QTD_SOLICITADA'] > 0]
 
-# ==========================================
-# REQUISIÇÃO DOS DADOS (TRAZ TUDO STATUS 1)
-# ==========================================
-with st.spinner("Carregando RMs pendentes..."):
-    try:
-        query_rm = supabase.table("api_rm").select("*").eq("status_rm", 1)
+    return df
+
+# --- INTERFACE DE ARRASTAR E SOLTAR ---
+arquivos_enviados = st.file_uploader(
+    "Arraste e solte seus arquivos da RM aqui (.xls ou .xlsx)", 
+    type=["xlsx", "xls"], 
+    accept_multiple_files=True
+)
+
+if arquivos_enviados:
+    st.write(f"📂 **{len(arquivos_enviados)}** arquivo(s) carregado(s). Processando...")
+    
+    for arquivo in arquivos_enviados:
+        st.subheader(f"📄 Arquivo: {arquivo.name}")
         
-        if len(st.session_state.filtro_datas_input) == 2:
-            query_rm = query_rm.gte("data_necessidade", st.session_state.filtro_datas_input[0].strftime("%Y-%m-%d"))\
-                               .lte("data_necessidade", st.session_state.filtro_datas_input[1].strftime("%Y-%m-%d"))
+        try:
+            df_bruto = pd.read_excel(arquivo)
+            df_tratado = tratar_dados(df_bruto)
             
-        res_rm = query_rm.execute()
-        dados_rm = res_rm.data
-        
-        # Traz os campos t_item e m_descricao_do_item da lista mestra para o LOG
-        res_materiais = supabase.table("api_materiais").select("m_coditem, t_item, m_descricao_do_item").execute()
-        dados_materiais = res_materiais.data
-        
-    except Exception as e:
-        st.error(f"Erro ao consultar o banco de dados: {e}")
-        dados_rm, dados_materiais = [], []
-
-# ==========================================
-# PROCESSAMENTO DO MERGE COM PANDAS
-# ==========================================
-if dados_rm:
-    df_rm = pd.DataFrame(dados_rm)
-    df_mat = pd.DataFrame(dados_materiais)
-    
-    # Força a padronização de tipos primitivos inteiros
-    df_rm["cod_mega"] = pd.to_numeric(df_rm["cod_mega"], errors="coerce").astype("Int64")
-    if not df_mat.empty:
-        df_mat["m_coditem"] = pd.to_numeric(df_mat["m_coditem"], errors="coerce").astype("Int64")
-    
-    # Realiza o Merge comparando cod_mega com m_coditem
-    if not df_mat.empty:
-        df_consolidado = pd.merge(df_rm, df_mat, left_on="cod_mega", right_on="m_coditem", how="left")
-    else:
-        df_consolidado = df_rm.copy()
-        df_consolidado["m_descricao_do_item"] = None
-        df_consolidado["t_item"] = None
-
-    # Agrupa as RMs dinamicamente por número único presente
-    rms_unicas = sorted(df_consolidado["n_rm"].dropna().unique())
-    st.write(f"📊 Foram localizadas **{len(rms_unicas)}** RM(s) com itens pendentes.")
-    
-    # ==========================================
-    # RENDERIZAÇÃO DAS SEÇÕES POR RM VIA LOOP
-    # ==========================================
-    for num_rm in rms_unicas:
-        df_rm_atual = df_consolidado[df_consolidado["n_rm"] == num_rm]
-        
-        with st.expander(f"📦 REQUISIÇÃO DE MATERIAL - RM Nº {num_rm} ({len(df_rm_atual)} itens)", expanded=True):
-            linhas_tabela = []
-            ids_para_aprovar = []
-            lista_logs_para_salvar = []
-            contagem_bloqueados = 0
-            
-            for _, linha in df_rm_atual.iterrows():
-                achou = "SIM" if pd.notna(linha.get("m_descricao_do_item")) else "NÃO"
-                ids_para_aprovar.append(int(linha["id"]))
+            if df_tratado is not None and not df_tratado.empty:
+                st.success(f"✅ Dados tratados com sucesso! ({len(df_tratado)} linhas)")
+                st.dataframe(df_tratado[['N_RM', 'SEQ_ITEM', 'DESC_ITEM', 'QTD_SOLICITADA']].head(5))
                 
-                if achou == "NÃO":
-                    contagem_bloqueados += 1
-                else:
-                    # Estruturação rígida de tipos nativos para gravação segura do LOG instantâneo
-                    lista_logs_para_salvar.append({
-                        "id_api_rm": int(linha["id"]),
-                        "n_rm": int(linha["n_rm"]),
-                        "cod_solicitacao_mega": int(linha["cod_solicitacao_mega"]) if pd.notna(linha["cod_solicitacao_mega"]) else None,
-                        "cod_mega": int(linha["cod_mega"]) if pd.notna(linha["cod_mega"]) else None,
-                        "t_item": str(linha.get("t_item", "")).strip() if pd.notna(linha.get("t_item")) else None,
-                        "m_descricao_do_item": str(linha.get("m_descricao_do_item", "")).strip() if pd.notna(linha.get("m_descricao_do_item")) else None,
-                        "usuario_logado": str(st.session_state.usuario_email)
-                    })
+                # Botão para disparar a importação exclusiva desta planilha carregada
+                if st.button(f"🚀 Importar {arquivo.name} para o Supabase", key=arquivo.name):
+                    salvos = 0
+                    ignorados = 0
                     
-                linhas_tabela.append({
-                    "Seq": linha.get("seq_item"),
-                    "Cód. Solicitação": linha.get("cod_solicitacao_mega"),
-                    "Codigo do Mega": linha.get("cod_mega"),
-                    "Descrição RM": linha.get("desc_item"),
-                    "Qtd": linha.get("qtd_solicitada"),
-                    "Data Necessidade": linha.get("data_necessidade"),
-                    "Encontrado no Mestra?": achou,
-                    "Descrição Mestra (De/Para)": linha.get("m_descricao_do_item") if achou == "SIM" else "---"
-                })
-                
-            df_exibicao_rm = pd.DataFrame(linhas_tabela).sort_values(by="Seq")
-            st.dataframe(df_exibicao_rm, use_container_width=True, hide_index=True)
-            
-            # ==========================================
-            # AÇÃO DE APROVAÇÃO TRANSACIONAL
-            # ==========================================
-            if contagem_bloqueados == 0:
-                st.success(f"✔️ Todos os itens da RM {num_rm} foram validados com sucesso no De/Para.")
-                
-                if st.button(f"🚀 Aprovar RM {num_rm}", key=f"btn_aprovar_{num_rm}", use_container_width=True, type="primary"):
-                    with st.spinner(f"Gravando LOG e salvando aprovação da RM {num_rm}..."):
-                        
-                        if not lista_logs_para_salvar:
-                            st.error("Erro interno: A lista de LOGS está vazia!")
-                            st.stop()
+                    progresso = st.progress(0)
+                    total_linhas = len(df_tratado)
+                    
+                    # Processa item por item para conseguir saltar duplicidades via Constraint de banco
+                    for index, (_, linha) in enumerate(df_tratado.iterrows()):
+                        data_nec = None
+                        if 'DATA_NECESSIDADE' in linha and pd.notna(linha['DATA_NECESSIDADE']):
+                            data_nec = str(linha['DATA_NECESSIDADE'])
+
+                        registro = {
+                            "cod_solicitacao_mega": int(linha["COD_SOLICITACAO_MEGA"]) if pd.notna(linha["COD_SOLICITACAO_MEGA"]) else None,
+                            "desc_item": str(linha["DESC_ITEM"]),
+                            "qtd_solicitada": float(linha["QTD_SOLICITADA"]),
+                            "data_necessidade": data_nec,
+                            "user_solicitacao": str(linha.get("USER_SOLICITACAO", "")) if pd.notna(linha.get("USER_SOLICITACAO")) else None,
+                            "cod_user_mega": str(linha.get("COD_USER_MEGA", "")) if pd.notna(linha.get("COD_USER_MEGA")) else None,
+                            "obs_item": str(linha.get("OBS_ITEM", "")) if pd.notna(linha.get("OBS_ITEM")) else None,
+                            "cod_mega": int(linha["COD_MEGA"]) if pd.notna(linha["COD_MEGA"]) else None,
+                            "n_rm": int(linha["N_RM"]),
+                            "seq_item": int(linha["SEQ_ITEM"]),
+                            "status_rm": 1, # Grava inicialmente com Status 1 (Pendente) conforme solicitado
+                            "usuario_importacao": st.session_state.usuario_email
+                        }
                         
                         try:
-                            # 🚨 PASSO 1: Persiste o instantâneo na tabela de LOGS
-                            resposta_log = supabase.table("api_log_rm").insert(lista_logs_para_salvar).execute()
-                            
-                            # 🚨 VALIDAÇÃO ATÔMICA: Se o RLS barrou, o retorno virá vazio. 
-                            # Nós interrompemos o script aqui e NÃO mudamos o status da RM para 2.
-                            if not resposta_log.data or len(resposta_log.data) == 0:
-                                st.error("❌ **Falha Crítica de Persistência:** O LOG de segurança não pôde ser salvo!")
-                                st.warning("💡 Causa provável: A tabela 'api_log_rm' está com o RLS ativo no painel do Supabase. Desative o RLS ou crie uma política de gravação pública.")
-                                with st.expander("Inspecionar metadados de retorno vazios do banco:"):
-                                    st.write(resposta_log)
-                                st.stop()
-                            
-                            # 🚨 PASSO 2: Apenas se passou na validação acima, altera o status_rm para 2
-                            resposta_update = supabase.table("api_rm")\
-                                .update({"status_rm": 2})\
-                                .in_("id", ids_para_aprovar)\
-                                .execute()
-                            
-                            if resposta_update.data:
-                                st.balloons()
-                                st.success(f"🎉 Perfeito! LOG gravado na tabela api_log_rm e RM {num_rm} aprovada para Status 2.")
-                                st.rerun()
-                                    
-                        except Exception as error_up:
-                            st.error(f"❌ Erro crítico de comunicação transacional com o Supabase!")
-                            with st.expander("Ver erro técnico detalhado"):
-                                st.code(str(error_up))
-                            st.stop()
-            else:
-                st.error(f"❌ **Aprovação Bloqueada:** Existem **{contagem_bloqueados}** item(ns) pendentes no De/Para.")
-                st.button(f"🔒 RM {num_rm} Bloqueada ({contagem_bloqueados} pendências)", key=f"btn_bloqueado_{num_rm}", disabled=True, use_container_width=True)
-
-    
-if st.button("TESTE INSERT"):
-    teste = supabase.table("api_log_rm").insert({
-        "id_api_rm": 999,
-        "n_rm": 999,
-        "cod_solicitacao_mega": 999,
-        "cod_mega": 999,
-        "t_item": "TESTE",
-        "m_descricao_do_item": "TESTE",
-        "usuario_logado": "TESTE"
-    }).execute()
-
-    st.write(teste)
-
+                            # Tenta inserir a linha única na tabela api_rm
+                            supabase.table("api_rm").insert(registro).execute()
+                            salvos += 1
+                        except Exception as e:
+                            # Código Postgres '23505' identifica barreira de Constraint (Duplicidade n_rm + seq_item)
+                            if "23505" in str(e) or "unique_rm_item" in str(e):
+                                ignorados += 1
+                            else:
+                                st.error(f"Erro inesperado de estrutura na linha {index}: {e}")
+                        
+                        progresso.progress((index + 1) / total_linhas)
+                    
+                    # Resumo informativo na interface para o operador
+                    st.write("---")
+                    st.success(f"📥 Processamento do lote finalizado!")
+                    st.info(f"✔️ Novos itens salvos: **{salvos}**")
+                    
+                    if ignorados > 0:
+                        st.warning(f"⚠️ Itens descartados por já existirem no banco: **{ignorados}**")
+                        
+        except Exception as e:
+            st.error(f"Falha ao processar a leitura do Excel {arquivo.name}: {e}")
 else:
-    st.info("Nenhuma requisição pendente (Status 1) foi localizada no banco.")
+    st.info("Aguardando o envio de planilhas para iniciar o processamento.")
