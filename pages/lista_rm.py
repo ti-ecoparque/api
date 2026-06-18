@@ -61,19 +61,21 @@ with st.spinner("Buscando dados no banco..."):
 if dados_rm:
     # Transforma os dados em DataFrames do Pandas
     df_rm = pd.DataFrame(dados_rm)
-    df_mat = pd.DataFrame(dados_materiais)  # <-- Chamada corrigida aqui
+    df_mat = pd.DataFrame(dados_materiais)
     
-    # Força os códigos de comparação a serem do mesmo tipo (Inteiro limpo)
-    df_rm['cod_solicitacao_mega'] = pd.to_numeric(df_rm['cod_solicitacao_mega'], errors='coerce').astype('Int64')
+    # 🔹 CORREÇÃO DA CHAVE DE PROCV:
+    # Forçamos a coluna 'cod_mega' (e não a cod_solicitacao_mega) a ser um inteiro limpo para o cruzamento
+    df_rm['cod_mega'] = pd.to_numeric(df_rm['cod_mega'], errors='coerce').astype('Int64')
+    
     if not df_mat.empty:
         df_mat['m_coditem'] = pd.to_numeric(df_mat['m_coditem'], errors='coerce').astype('Int64')
     
-    # Executa o cruzamento de dados (Equivalente ao PROCV / INNER JOIN) em memória
+    # 🔹 AJUSTE DO LEFT_ON: Agora cruza 'cod_mega' (1033) com 'm_coditem' (1033)
     if not df_mat.empty:
         df_consolidado = pd.merge(
             df_rm, 
             df_mat, 
-            left_on='cod_solicitacao_mega', 
+            left_on='cod_mega', # Mudado de 'cod_solicitacao_mega' para 'cod_mega'
             right_on='m_coditem', 
             how='left'
         )
@@ -81,7 +83,7 @@ if dados_rm:
         df_consolidado = df_rm.copy()
         df_consolidado['m_descricao_do_item'] = None
 
-        # Monta a estrutura final de exibição na tela com a nova ordem e nomes de colunas
+    # Monta a estrutura final de exibição na tela com a nova ordem e nomes de colunas
     linhas_tabela = []
     ids_validos_para_atualizar = []
     
@@ -92,12 +94,12 @@ if dados_rm:
         if achou == "SIM":
             ids_validos_para_atualizar.append(int(linha["id"]))
             
-        # 🔹 NOVA ESTRUTURA: Colunas reordenadas, renomeadas e ID Banco removido
+        # Estrutura de colunas solicitada na versão anterior
         linhas_tabela.append({
             "Nº RM": linha.get("n_rm"),
             "Cód. Solicitação": linha.get("cod_solicitacao_mega"),
             "Seq": linha.get("seq_item"),
-            "Codigo do Mega": linha.get("cod_mega"), # Buscando direto da api_rm
+            "Codigo do Mega": linha.get("cod_mega"),
             "Descrição RM": linha.get("desc_item"),
             "Qtd": linha.get("qtd_solicitada"),
             "Data Necessidade": linha.get("data_necessidade"),
@@ -119,7 +121,7 @@ if dados_rm:
     col_stat1.metric("Itens Prontos para Alterar (Status 2)", total_validos)
     col_stat2.metric("Itens Bloqueados (Não achou no De/Para)", total_invalidos)
     
-    # Botão de Ação em Lote (Garante o update em background usando a lista oculta de IDs válidos)
+    # Botão de Ação em Lote
     if total_validos > 0:
         if st.button(f"🔄 Mudar Status para '2' de ({total_validos}) itens validados", type="primary", use_container_width=True):
             with st.spinner("Atualizando registros elegíveis..."):
