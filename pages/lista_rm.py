@@ -81,7 +81,7 @@ if dados_rm:
         df_consolidado = df_rm.copy()
         df_consolidado['m_descricao_do_item'] = None
 
-    # Monta a estrutura final de exibição na tela
+        # Monta a estrutura final de exibição na tela com a nova ordem e nomes de colunas
     linhas_tabela = []
     ids_validos_para_atualizar = []
     
@@ -92,11 +92,12 @@ if dados_rm:
         if achou == "SIM":
             ids_validos_para_atualizar.append(int(linha["id"]))
             
+        # 🔹 NOVA ESTRUTURA: Colunas reordenadas, renomeadas e ID Banco removido
         linhas_tabela.append({
-            "ID Banco": linha.get("id"),
             "Nº RM": linha.get("n_rm"),
-            "Seq": linha.get("seq_item"),
             "Cód. Solicitação": linha.get("cod_solicitacao_mega"),
+            "Seq": linha.get("seq_item"),
+            "Codigo do Mega": linha.get("cod_mega"), # Buscando direto da api_rm
             "Descrição RM": linha.get("desc_item"),
             "Qtd": linha.get("qtd_solicitada"),
             "Data Necessidade": linha.get("data_necessidade"),
@@ -106,6 +107,8 @@ if dados_rm:
         
     df_exibicao = pd.DataFrame(linhas_tabela)
     st.write(f"📊 Foram encontrados **{len(df_exibicao)}** itens pendentes (Status 1).")
+    
+    # Exibe a tabela com a nova formatação limpa
     st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
     
     st.divider()
@@ -116,7 +119,7 @@ if dados_rm:
     col_stat1.metric("Itens Prontos para Alterar (Status 2)", total_validos)
     col_stat2.metric("Itens Bloqueados (Não achou no De/Para)", total_invalidos)
     
-    # Botão de Ação em Lote
+    # Botão de Ação em Lote (Garante o update em background usando a lista oculta de IDs válidos)
     if total_validos > 0:
         if st.button(f"🔄 Mudar Status para '2' de ({total_validos}) itens validados", type="primary", use_container_width=True):
             with st.spinner("Atualizando registros elegíveis..."):
@@ -136,3 +139,4 @@ if dados_rm:
         st.warning("⚠️ Nenhum item está cadastrado na tabela 'api_materiais'. Alteração de status bloqueada.")
 else:
     st.info("Nenhuma requisição pendente (Status 1) localizada.")
+
