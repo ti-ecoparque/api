@@ -2,7 +2,7 @@ import requests
 import streamlit as st
 import os
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from supabase import create_client
 
 from api_config import obter_url_azure
@@ -141,21 +141,24 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     
     # 1. Trata e formata a data para o formato estrito ISO com hora (AAAA-MM-DDTHH:mm:ss)
     try:
-        # data_entrega_original vira uma string limpa
         data_string = str(data_entrega_original).strip()
         
-        # Se contiver espaço (ex: "2026-06-23 00:00:00"), pega apenas a parte da data
-        if " " in data_string:
-            data_string = data_string.split(" ")[0]
-            
-        if "/" in data_string:
-            # Se vier do Mega em formato brasileiro dd/mm/aaaa
-            obj_data = datetime.strptime(data_string, "%d/%m/%Y")
+        # 🚨 TRAVA DE SEGURANÇA: Se a data vier vazia, 'None' ou em branco da planilha
+        if not data_entrega_original or data_string == "None" or data_string == "":
+            st.warning("⚠️ Data da RM veio em branco. Atribuindo prazo padrão de 7 dias úteis.")
+            # Calcula a data de hoje + 7 dias
+            obj_data = datetime.now() + timedelta(days=7)
         else:
-            # Se já vier em formato aaaa-mm-dd
-            obj_data = datetime.strptime(data_string, "%Y-%m-%d")
+            # Se contiver espaço (ex: "2026-06-23 00:00:00"), pega apenas a parte da data
+            if " " in data_string:
+                data_string = data_string.split(" ")[0]
+                
+            if "/" in data_string:
+                obj_data = datetime.strptime(data_string, "%d/%m/%Y")
+            else:
+                obj_data = datetime.strptime(data_string, "%Y-%m-%d")
             
-        # Formata no padrão estrito que o System.DateTime do C# adora ler
+        # Formata no padrão estrito que a Azure exige
         data_entrega_formatada = obj_data.strftime("%Y-%m-%dT00:00:00")
         
     except Exception as e_data:
