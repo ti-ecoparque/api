@@ -138,9 +138,14 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     # ==========================================
     url_requisicao = "https://apiecoparque.azurewebsites.net/CompraRequisicao/CompraRequisicaoSave"
     
-    # 🚨 CORREÇÃO 1: Trata e formata a data para o padrão ISO (AAAA-MM-DD) requerido pela Azure
+        # ==========================================
+    # 2. CHAMADA HTTP 1: CRIA A REQUISIÇÃO MÃE (CORRIGIDO)
+    # ==========================================
+    url_requisicao = "https://azurewebsites.net"
+    
+    # 1. Trata e formata a data para o padrão ISO (AAAA-MM-DD) requerido pela Azure
     try:
-        # Remove horas se existirem na string
+        # Garante que remove espaços e isola a string da data pura
         data_limpa = data_entrega_original.strip().split(" ")[0]
         
         if "/" in data_limpa:
@@ -153,25 +158,22 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         st.error(f"⚠️ Erro ao formatar a data '{data_entrega_original}': {e_data}")
         return {"sucesso": False, "mensagens": "❌ Formato de data inválido. Use AAAA-MM-DD ou DD/MM/AAAA."}
 
-    # Monta a estrutura interna do objeto
+    # 2. Monta a estrutura interna do objeto de requisição
     dados_requisicao = {
         "compraRequisicaoId": 0,
         "sequencial": 0,
         "pessoaId": int(pessoa_id),
         "centroDeCustoId": int(centro_custo_id),
         "compraRequisicaoStatusId": 0,
-        "dataDeEntrega": data_entrega_formatada, # Data padronizada enviada aqui
+        "dataDeEntrega": data_entrega_formatada,
         "observacao": f"Importação - {nome_empresa} - RM {num_rm}",
         "enderecoDeEntrega": str(endereco_entrega)
     }
     
-    # 🚨 CORREÇÃO 2: Dependendo de como a API C#/.NET foi construída, ela pode exigir 
-    # o objeto envelopado diretamente ou sob a chave "dados" (conforme o erro indicou).
-    # Vamos enviar a estrutura envelopada para sanar o erro '"The dados field is required."'
-    payload_mae = dados_requisicao  
-    
-    # Se ao rodar ainda persistir o erro do campo 'dados', comente a linha acima e use esta:
-    # payload_mae = {"dados": dados_requisicao}
+    # 🚨 SOLUÇÃO DO ERRO: Envelopa os dados dentro da chave "dados" exigida pela API do Azure
+    payload_mae = {
+        "dados": dados_requisicao
+    }
 
     try:
         response_mae = requests.post(url_requisicao, json=payload_mae, headers=headers)
@@ -184,15 +186,22 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
             
         dados_mae = response_mae.json()
         
-        # Certifique-se de onde vêm os IDs na resposta da API, se direto no JSON ou dentro de um nó de dados
-        # ex: dados_mae.get("dados", {}).get("compraRequisicaoId") se a resposta vier envelopada
+        # Como o envio foi envelopado sob 'dados', o retorno da API também pode vir envelopado.
+        # Captura de forma segura se vier na raiz do JSON ou aninhado dentro de um nó de resposta.
         req_id = dados_mae.get("compraRequisicaoId") or dados_mae.get("dados", {}).get("compraRequisicaoId")
         num_sequencial = dados_mae.get("sequencial") or dados_mae.get("dados", {}).get("sequencial")
         
+        if not req_id:
+            return {
+                "sucesso": False,
+                "mensagens": f"❌ ID de requisição não localizado na resposta da Azure: {dados_mae}"
+            }
+            
         st.write(f"✅ **Cabeçalho criado temporariamente na Azure!** ID: `{req_id}` | Nº: `{num_sequencial}`")
         
     except Exception as e:
         return {"sucesso": False, "mensagens": f"❌ Falha ao criar requisição mãe: {e}"}
+
 
 
     # ==========================================
