@@ -25,7 +25,8 @@ MAP_CENTRO_CUSTO = {
     55: {"id": 3, "descricao": "Administração"},        # Fabiana 
     53: {"id": 4, "descricao": "Estoque"},              # Paulo
     40: {"id": 3, "descricao": "Administração"},        # Adrielle
-    21: {"id": 3, "descricao": "Administração"}         # Jonatha
+    21: {"id": 3, "descricao": "Administração"},         # Jonatha
+    36: {"id": 3, "descricao": "Administração"} # PCP
 }
 
 # FUNÇÕES AUXILIARES
