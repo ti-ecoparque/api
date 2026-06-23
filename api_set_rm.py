@@ -135,27 +135,33 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     st.write(f"🏢 **Filial Mapeada:** {nome_empresa} (PessoaID: {pessoa_id})")
     st.write(f"📁 **Centro de Custo Mapeado:** ID {centro_custo_id}")
 
-    # Tratamento e formatação estrita da data contra valores nulos (None)
+        # Tratamento e formatação estrita da data contra valores nulos ou fusos horários
     try:
         data_string = str(data_entrega_original).strip()
         
+        # 1. Se a data vier vazia, 'None' ou em branco da planilha
         if not data_entrega_original or data_string == "None" or data_string == "":
             st.warning("⚠️ Data da RM veio em branco. Atribuindo prazo padrão de 7 dias úteis.")
             obj_data = datetime.now() + timedelta(days=7)
         else:
-            if " " in data_string:
-                data_string = data_string.split(" ")[0]
-                
-            if "/" in data_string:
-                obj_data = datetime.strptime(data_string, "%d/%m/%Y")
-            else:
-                obj_data = datetime.strptime(data_string, "%Y-%m-%d")
+            # 2. Usa o Pandas para converter inteligentemente qualquer formato (ISO, BR, etc)
+            # O errors='coerce' transforma valores inválidos em NaT (Not a Time)
+            data_convertida = pd.to_datetime(data_entrega_original, errors='coerce')
             
+            # Se o pandas falhar na conversão, assume a trava de segurança de 7 dias
+            if pd.isna(data_convertida):
+                st.warning("⚠️ Formato de data não reconhecido. Atribuindo prazo padrão de 7 dias úteis.")
+                obj_data = datetime.now() + timedelta(days=7)
+            else:
+                obj_data = data_convertida
+
+        # 3. Formata no padrão estrito limpo que a Azure exige (AAAA-MM-DDTHH:mm:ss)
         data_entrega_formatada = obj_data.strftime("%Y-%m-%dT00:00:00")
         
     except Exception as e_data:
         st.error(f"⚠️ Erro ao formatar a data original '{data_entrega_original}': {e_data}")
         return {"sucesso": False, "mensagens": "❌ Falha crítica no formato de data fornecido pela planilha."}
+
 
     # CHAMADA HTTP: CRIA A REQUISIÇÃO MÃE NA AZURE
     url_requisicao = obter_url_azure("salvar_requisicao_mae")
