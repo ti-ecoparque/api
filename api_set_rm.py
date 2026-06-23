@@ -136,7 +136,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         # ==========================================
     # 2. CHAMADA HTTP 1: CRIA A REQUISIÇÃO MÃE (CORRIGIDO)
     # ==========================================
-    url_requisicao = "https://azurewebsites.net"
+    url_requisicao = "https://apiecoparque.azurewebsites.net/CompraRequisicao/CompraRequisicaoSave"
     
     # 🚨 CORREÇÃO 1: Trata e formata a data para o padrão ISO (AAAA-MM-DD) requerido pela Azure
     try:
@@ -250,7 +250,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         st.error(f"Motivo do cancelamento: {motivo_falha}")
         
         try:
-            url_delete = f"https://azurewebsites.net" 
+            url_delete = f"https://apiecoparque.azurewebsites.net/CompraRequisicao/CompraRequisicaoSave" 
             payload_delete = {"compraRequisicaoId": int(req_id)}
             response_delete = requests.post(url_delete, json=payload_delete, headers=headers)
             
