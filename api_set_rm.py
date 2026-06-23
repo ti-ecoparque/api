@@ -141,11 +141,9 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     
     # 1. Trata e formata a data para o padrão ISO (AAAA-MM-DD) requerido pela Azure
     try:
-        # Garante que remove espaços e isola a string da data pura
         data_limpa = data_entrega_original.strip().split(" ")[0]
         
         if "/" in data_limpa:
-            # Se vier em formato brasileiro dd/mm/aaaa, converte para o formato ISO
             obj_data = datetime.strptime(data_limpa, "%d/%m/%Y")
             data_entrega_formatada = obj_data.strftime("%Y-%m-%d")
         else:
@@ -154,24 +152,20 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         st.error(f"⚠️ Erro ao formatar a data '{data_entrega_original}': {e_data}")
         return {"sucesso": False, "mensagens": "❌ Formato de data inválido. Use AAAA-MM-DD ou DD/MM/AAAA."}
 
-    # 2. Monta a estrutura interna do objeto de requisição
-    dados_requisicao = {
-        "compraRequisicaoId": 0,
-        "sequencial": 0,
-        "pessoaId": int(pessoa_id),
-        "centroDeCustoId": int(centro_custo_id),
-        "compraRequisicaoStatusId": 0,
-        "dataDeEntrega": data_entrega_formatada,
-        "observacao": f"Importação - {nome_empresa} - RM {num_rm}",
-        "enderecoDeEntrega": str(endereco_entrega)
-    }
-    
-    # 🚨 SOLUÇÃO DO ERRO: Envelopa os dados dentro da chave "dados" exigida pela API do Azure
+    # 2. Monta o dicionário com a primeira letra MAIÚSCULA em cada chave (Conforme exige o C#/.NET)
     payload_mae = {
-        "dados": dados_requisicao
+        "CompraRequisicaoId": 0,
+        "Sequencial": 0,
+        "PessoaId": int(pessoa_id),
+        "CentroDeCustoId": int(centro_custo_id),
+        "CompraRequisicaoStatusId": 0,
+        "DataDeEntrega": data_entrega_formatada,
+        "Observacao": f"Importação - {nome_empresa} - RM {num_rm}",
+        "EnderecoDeEntrega": str(endereco_entrega)
     }
 
     try:
+        # Envia o payload direto na raiz do JSON (Sem o nó "dados")
         response_mae = requests.post(url_requisicao, json=payload_mae, headers=headers)
         
         if response_mae.status_code != 200:
@@ -182,10 +176,9 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
             
         dados_mae = response_mae.json()
         
-        # Como o envio foi envelopado sob 'dados', o retorno da API também pode vir envelopado.
-        # Captura de forma segura se vier na raiz do JSON ou aninhado dentro de um nó de resposta.
-        req_id = dados_mae.get("compraRequisicaoId") or dados_mae.get("dados", {}).get("compraRequisicaoId")
-        num_sequencial = dados_mae.get("sequencial") or dados_mae.get("dados", {}).get("sequencial")
+        # Captura os IDs mapeando também com a primeira letra maiúscula conforme o padrão da API
+        req_id = dados_mae.get("compraRequisicaoId") or dados_mae.get("CompraRequisicaoId")
+        num_sequencial = dados_mae.get("sequencial") or dados_mae.get("Sequencial")
         
         if not req_id:
             return {
