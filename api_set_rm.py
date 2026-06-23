@@ -1,10 +1,11 @@
 import requests
 import streamlit as st
 import os
-import sys
 import pandas as pd
-from supabase import create_client
 from datetime import datetime
+from supabase import create_client
+
+from api_config import obter_url_azure
 
 def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     """
@@ -136,12 +137,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         # ==========================================
     # 2. CHAMADA HTTP 1: CRIA A REQUISIÇÃO MÃE (CORRIGIDO)
     # ==========================================
-    url_requisicao = "https://apiecoparque.azurewebsites.net/CompraRequisicao/CompraRequisicaoSave"
-    
-        # ==========================================
-    # 2. CHAMADA HTTP 1: CRIA A REQUISIÇÃO MÃE (CORRIGIDO)
-    # ==========================================
-    url_requisicao = "https://azurewebsites.net"
+    url_requisicao = obter_url_azure("salvar_requisicao_mae")
     
     # 1. Trata e formata a data para o padrão ISO (AAAA-MM-DD) requerido pela Azure
     try:
@@ -207,7 +203,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     # ==========================================
     # 3. CHAMADA HTTP 2: INSERÇÃO DOS ITENS FILHOS
     # ==========================================
-    url_item = "https://apiecoparque.azurewebsites.net/CompraRequisicao/CompraRequisicaoItemSave"
+    url_item = obter_url_azure("salvar_item_filho")
     total_linhas = len(df_itens_rm)
     
     itens_para_salvar_no_banco = []
@@ -259,7 +255,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         st.error(f"Motivo do cancelamento: {motivo_falha}")
         
         try:
-            url_delete = f"https://apiecoparque.azurewebsites.net/CompraRequisicao/CompraRequisicaoSave" 
+            url_delete = obter_url_azure("deletar_requisicao")
             payload_delete = {"compraRequisicaoId": int(req_id)}
             response_delete = requests.post(url_delete, json=payload_delete, headers=headers)
             
