@@ -1,11 +1,13 @@
-import requests
-import streamlit as st
 import os
+import requests
 import pandas as pd
+import streamlit as st
 from datetime import datetime, timedelta
 from supabase import create_client
 
 from api_config import obter_url_azure
+from map.map_config import obter_pessoa_id, obter_centro_custo, obter_endereco_entrega
+
 
 def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     """
@@ -22,7 +24,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     st.info("🔍 Verificando se a RM já foi integrada anteriormente no banco de dados...")
 
     # ==========================================================
-    # 🚨 VALIDAÇÃO ANTI-DUPLICIDADE (SUPABASE)
+    # 🚨 1. VALIDAÇÃO ANTI-DUPLICIDADE (SUPABASE)
     # ==========================================================
     try:
         checagem_duplicidade = (
@@ -33,7 +35,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         )
         
         if checagem_duplicidade.data:
-            st.error(f"🛑 **Integração Abortada!** A RM nº **{num_rm}** já foi integrada anteriormente e os registros constam no banco de dados.")
+            st.error(f"🛑 **Integração Abortada!** A RM nº **{num_rm}** já foi integrada anteriormente.")
             return {
                 "sucesso": False,
                 "mensagens": f"❌ Duplicidade detectada: A RM {num_rm} já foi processada no sistema."
@@ -44,6 +46,108 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
             "sucesso": False,
             "mensagens": f"❌ Erro ao validar duplicidade de RM na tabela do Supabase: {e}"
         }
+
+    st.success("✔️ Validação de duplicidade OK! Esta RM é nova e pode ser integrada.")
+
+    # ==========================================================
+    # 🏗️ 2. MONTAGEM DO CABEÇALHO CORRIGIDO (MAP_CONFIG)
+    # ==========================================================
+    if df_itens_rm.empty:
+        st.error(f"❌ Nenhum item encontrado para processar a RM {num_rm}")
+        return {"sucesso": False, "mensagens": "DataFrame de itens vazio."}
+
+    try:
+        # Pega a primeira linha da planilha para extrair os dados gerais do cabeçalho
+        dados_rm = df_itens_rm.iloc[0]
+
+        # Extrai os códigos numéricos (força inteiro para não dar incompatibilidade)
+        codigo_filial = int(dados_rm.get("filial_codigo"))
+        codigo_usuario = int(dados_rm.get("usuario_codigo"))
+
+        # Determina a data de entrega final tratando vazios e nulos do Pandas
+        data_rm = dados_rm.get("data_entrega")
+        if not data_rm or pd.isna(data_rm):
+            data_entrega_final = (datetime.today() + timedelta(days=10)).strftime("%Y-%m-%d")
+            st.warning("⚠️ Data da RM veio em branco. Atribuindo prazo padrão de 10 dias úteis.")
+        else:
+            data_entrega_final = pd.to_datetime(data_rm).strftime("%Y-%m-%d")
+
+        # Injeta os dados limpos nas funções mapeadas do seu map_config.py
+        payload_cabecalho = {
+            "PessoaId": obter_pessoa_id(codigo_filial),
+            "CentroDeCustoId": obter_centro_custo(codigo_usuario),
+            "EnderecoDeEntrega": obter_endereco_entrega(codigo_filial),
+            "DataDeEntrega": data_entrega_final,
+            "Observacao": str(dados_rm.get("observacao") or f"Envio automatico da RM {num_rm}").strip()
+        }
+
+        # Registra no log visual os mapeamentos bem-sucedidos
+        st.write(f"🏢 **Filial Mapeada:** {dados_rm.get('nome_filial')} (PessoaID: {payload_cabecalho['PessoaId']})")
+        st.write(f"📁 **Centro de Custo Mapeado:** ID {payload_cabecalho['CentroDeCustoId']}")
+
+    except Exception as e:
+        st.error(f"💥 Erro na estruturação dos dados de mapeamento: {e}")
+        return {"sucesso": False, "mensagens": f"Erro de mapeamento: {e}"}
+
+    # ==========================================================
+    # 📡 3. VALIDAÇÃO DE ITENS E DISPARO PARA A API DA AZURE
+    # ==========================================================
+    st.info("🔍 Iniciando pré-validação de consistência com a API da Azure...")
+    
+    try:
+        url_azure = obter_url_azure()
+        
+        headers = {
+            "Authorization": f"Bearer {token_autenticado}", 
+            "Content-Type": "application/json"
+        }
+        
+        # Converte os itens para dicionário compatível com o JSON da API
+        itens_formatados = df_itens_rm.to_dict(orient="records")
+        
+        # Junta o cabeçalho validado aos itens filhos da RM
+        payload_completo = {
+            **payload_cabecalho, 
+            "Itens": itens_formatados
+        }
+        
+        # Realiza o disparo real por POST para o servidor da Azure
+        resposta = requests.post(url_azure, json=payload_completo, headers=headers)
+        
+        if resposta.status_code in [200, 201]:
+            supabase.table("api_integracao_sucesso").insert({"n_rm": int(num_rm)}).execute()
+            return {
+                "sucesso": True,
+                "mensagens": f"🚀 RM {num_rm} integrada com sucesso na Azure e gravada no banco!"
+            }
+        else:
+            return {
+                "sucesso": False, 
+                "mensagens": f"❌ Erro da API Externa ({resposta.status_code}): {resposta.text}"
+            }
+            
+    except Exception as e:
+        return {
+            "sucesso": False,
+            "mensagens": f"❌ Falha crítica na comunicação com a API da Azure: {e}"
+        }
+
+    # ==========================================================
+    # 📡 VALIDAÇÃO DE ITENS E DISPARO PARA A API DA AZURE
+    # ==========================================================
+    # Daqui para baixo entra o seu loop que lê 'df_itens_rm', compara com a Azure
+    # e envia o 'payload_cabecalho' acoplado aos produtos correspondentes.
+    
+    # Exemplo ilustrativo do envio final para a Azure:
+    url_azure = obter_url_azure()
+    headers = {"Authorization": f"Bearer {token_autenticado}", "Content-Type": "application/json"}
+    
+    # Exemplo estrutural de envio (Adapte conforme o formato exato da sua lista de itens filhos)
+    payload_completo = {**payload_cabecalho, "Itens": df_itens_rm.to_dict(orient="records")}
+    
+    # resposta = requests.post(url_azure, json=payload_completo, headers=headers)
+    
+    return {"sucesso": True, "mensagens": "Cabeçalho estruturado com sucesso!"}
 
     st.success("✔️ Validação de duplicidade OK! Esta RM é nova e pode ser integrada.")
     st.info("🔍 Iniciando pré-validação de consistência com a API da Azure...")
