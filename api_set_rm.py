@@ -139,17 +139,14 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     # ==========================================
     url_requisicao = obter_url_azure("salvar_requisicao_mae")
     
-    # 1. Trata e formata a data para o formato estrito ISO com hora (AAAA-MM-DDTHH:mm:ss)
+    # 1. Trata e formata a data tratando valores nulos (None)
     try:
         data_string = str(data_entrega_original).strip()
         
-        # 🚨 TRAVA DE SEGURANÇA: Se a data vier vazia, 'None' ou em branco da planilha
         if not data_entrega_original or data_string == "None" or data_string == "":
             st.warning("⚠️ Data da RM veio em branco. Atribuindo prazo padrão de 7 dias úteis.")
-            # Calcula a data de hoje + 7 dias
             obj_data = datetime.now() + timedelta(days=7)
         else:
-            # Se contiver espaço (ex: "2026-06-23 00:00:00"), pega apenas a parte da data
             if " " in data_string:
                 data_string = data_string.split(" ")[0]
                 
@@ -158,15 +155,15 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
             else:
                 obj_data = datetime.strptime(data_string, "%Y-%m-%d")
             
-        # Formata no padrão estrito que a Azure exige
         data_entrega_formatada = obj_data.strftime("%Y-%m-%dT00:00:00")
         
     except Exception as e_data:
         st.error(f"⚠️ Erro ao formatar a data original '{data_entrega_original}': {e_data}")
         return {"sucesso": False, "mensagens": "❌ Falha crítica no formato de data fornecido pela planilha."}
 
-    # 2. Monta o objeto interno com as chaves em Maiúsculas (conforme exigido pela API)
-    dados_requisicao = {
+    # 2. Monta o payload direto na raiz (Plano) com letras maiúsculas
+    # Removemos o envelopamento de 'payload_mae = {"dados": ...}'
+    payload_mae = {
         "CompraRequisicaoId": 0,
         "Sequencial": 0,
         "PessoaId": int(pessoa_id),
@@ -176,13 +173,9 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         "Observacao": f"Importação - {nome_empresa} - RM {num_rm}",
         "EnderecoDeEntrega": str(endereco_entrega)
     }
-    
-    # 🚨 SOLUÇÃO FINAL DO CORPO: "dados" em minúsculo na raiz envelopando o objeto corporativo
-    payload_mae = {
-        "dados": dados_requisicao
-    }
 
     try:
+        # O envio vai plano direto na raiz do JSON
         response_mae = requests.post(url_requisicao, json=payload_mae, headers=headers)
         
         if response_mae.status_code != 200:
@@ -193,7 +186,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
             
         dados_mae = response_mae.json()
         
-        # Captura os retornos mapeando os dois cenários possíveis de nós de resposta
+        # Mapeia todas as possibilidades de retorno da API para capturar o ID gerado
         req_id = dados_mae.get("compraRequisicaoId") or dados_mae.get("CompraRequisicaoId") or dados_mae.get("dados", {}).get("compraRequisicaoId")
         num_sequencial = dados_mae.get("sequencial") or dados_mae.get("Sequencial") or dados_mae.get("dados", {}).get("sequencial")
         
@@ -207,6 +200,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         
     except Exception as e:
         return {"sucesso": False, "mensagens": f"❌ Falha ao criar requisição mãe: {e}"}
+
 
     # ==========================================
     # 3. CHAMADA HTTP 2: INSERÇÃO DOS ITENS FILHOS
