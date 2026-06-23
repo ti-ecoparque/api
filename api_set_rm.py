@@ -139,21 +139,31 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     # ==========================================
     url_requisicao = obter_url_azure("salvar_requisicao_mae")
     
-    # 1. Trata e formata a data para o padrão ISO (AAAA-MM-DD) requerido pela Azure
+    # 1. Trata e formata a data para o formato estrito ISO com hora (AAAA-MM-DDTHH:mm:ss)
     try:
-        data_limpa = data_entrega_original.strip().split(" ")[0]
+        # data_entrega_original vira uma string limpa
+        data_string = str(data_entrega_original).strip()
         
-        if "/" in data_limpa:
-            obj_data = datetime.strptime(data_limpa, "%d/%m/%Y")
-            data_entrega_formatada = obj_data.strftime("%Y-%m-%d")
+        # Se contiver espaço (ex: "2026-06-23 00:00:00"), pega apenas a parte da data
+        if " " in data_string:
+            data_string = data_string.split(" ")[0]
+            
+        if "/" in data_string:
+            # Se vier do Mega em formato brasileiro dd/mm/aaaa
+            obj_data = datetime.strptime(data_string, "%d/%m/%Y")
         else:
-            data_entrega_formatada = data_limpa
+            # Se já vier em formato aaaa-mm-dd
+            obj_data = datetime.strptime(data_string, "%Y-%m-%d")
+            
+        # Formata no padrão estrito que o System.DateTime do C# adora ler
+        data_entrega_formatada = obj_data.strftime("%Y-%m-%dT00:00:00")
+        
     except Exception as e_data:
-        st.error(f"⚠️ Erro ao formatar a data '{data_entrega_original}': {e_data}")
-        return {"sucesso": False, "mensagens": "❌ Formato de data inválido. Use AAAA-MM-DD ou DD/MM/AAAA."}
+        st.error(f"⚠️ Erro ao formatar a data original '{data_entrega_original}': {e_data}")
+        return {"sucesso": False, "mensagens": "❌ Falha crítica no formato de data fornecido pela planilha."}
 
-    # 2. Monta o dicionário com a primeira letra MAIÚSCULA em cada chave (Conforme exige o C#/.NET)
-    payload_mae = {
+    # 2. Monta o objeto interno com as chaves em Maiúsculas (conforme exigido pela API)
+    dados_requisicao = {
         "CompraRequisicaoId": 0,
         "Sequencial": 0,
         "PessoaId": int(pessoa_id),
@@ -163,9 +173,13 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         "Observacao": f"Importação - {nome_empresa} - RM {num_rm}",
         "EnderecoDeEntrega": str(endereco_entrega)
     }
+    
+    # 🚨 SOLUÇÃO FINAL DO CORPO: "dados" em minúsculo na raiz envelopando o objeto corporativo
+    payload_mae = {
+        "dados": dados_requisicao
+    }
 
     try:
-        # Envia o payload direto na raiz do JSON (Sem o nó "dados")
         response_mae = requests.post(url_requisicao, json=payload_mae, headers=headers)
         
         if response_mae.status_code != 200:
@@ -176,22 +190,20 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
             
         dados_mae = response_mae.json()
         
-        # Captura os IDs mapeando também com a primeira letra maiúscula conforme o padrão da API
-        req_id = dados_mae.get("compraRequisicaoId") or dados_mae.get("CompraRequisicaoId")
-        num_sequencial = dados_mae.get("sequencial") or dados_mae.get("Sequencial")
+        # Captura os retornos mapeando os dois cenários possíveis de nós de resposta
+        req_id = dados_mae.get("compraRequisicaoId") or dados_mae.get("CompraRequisicaoId") or dados_mae.get("dados", {}).get("compraRequisicaoId")
+        num_sequencial = dados_mae.get("sequencial") or dados_mae.get("Sequencial") or dados_mae.get("dados", {}).get("sequencial")
         
         if not req_id:
             return {
                 "sucesso": False,
-                "mensagens": f"❌ ID de requisição não localizado na resposta da Azure: {dados_mae}"
+                "mensagens": f"❌ ID de requisição não foi localizado no dicionário de resposta da Azure: {dados_mae}"
             }
             
         st.write(f"✅ **Cabeçalho criado temporariamente na Azure!** ID: `{req_id}` | Nº: `{num_sequencial}`")
         
     except Exception as e:
         return {"sucesso": False, "mensagens": f"❌ Falha ao criar requisição mãe: {e}"}
-
-
 
     # ==========================================
     # 3. CHAMADA HTTP 2: INSERÇÃO DOS ITENS FILHOS
