@@ -249,21 +249,15 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         st.warning("⚠️ **Falha detectada durante o envio dos itens! Ativando Rollback...**")
         st.error(f"Motivo do cancelamento: {motivo_falha}")
         
-        # Executa o Rollback na Azure deletando a requisição mãe incompleta
         try:
-            # Endpoint real estruturado com base no padrão da sua API Ecoparque
             url_delete = f"https://azurewebsites.net" 
-            
-            # Enviamos o ID da requisição que precisa ser abortada/removida
             payload_delete = {"compraRequisicaoId": int(req_id)}
-            
             response_delete = requests.post(url_delete, json=payload_delete, headers=headers)
             
             if response_delete.status_code == 200:
                 st.info(f"🗑️ Requisição parcial {req_id} limpa e removida da Azure com sucesso.")
             else:
-                st.error(f"⚠️ Atenção: A API retornou status {response_delete.status_code} ao tentar deletar. Verifique no painel da Azure se o ID {req_id} foi removido.")
-                
+                st.error(f"⚠️ Erro ao tentar deletar cabeçalho na Azure (Status: {response_delete.status_code}).")
         except Exception as err_del:
             st.error(f"Erro de rede ao tentar limpar a requisição mãe na Azure: {err_del}")
             
@@ -292,13 +286,22 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
                 
             st.write("💾 **Todos os dados e vínculos salvos com sucesso no banco de dados!**")
             
-            return {
-                "sucesso": True,
-                "mensagens": f"🎉 Integração Concluída! RM {num_rm} enviada com sucesso. {len(itens_para_salvar_no_banco)} itens sincronizados e gravados."
-            }
+            # --- 🚨 FINALIZAÇÃO DO PROCESSO E MUDANÇA DE TELA ---
+            st.balloons() # Efeito visual de sucesso
+            st.success(f"RM {num_rm} integrada com sucesso! Redirecionando...")
+            
+            # Remove a planilha/dados da RM atual do estado da sessão para ela sumir da tela
+            if "df_itens_rm" in st.session_state:
+                del st.session_state["df_itens_rm"]
+            
+            # Altera a tela atual para a tela de listagem para atualizar o status visualmente
+            st.session_state.tela_atual = "02 Listar Requisição de Material"
+            
+            # Força o Streamlit a recarregar a interface já na nova tela e sem os dados antigos
+            st.rerun()
             
         except Exception as e_banco:
             return {
                 "sucesso": False,
                 "mensagens": f"❌ Erro gravíssimo ao salvar dados finais no banco (Azure OK, Banco Falhou): {e_banco}"
-            }    
+            }
