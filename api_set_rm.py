@@ -299,7 +299,11 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
             if itens_para_salvar_no_banco:
                 supabase.table("api_integracao_itens").insert(itens_para_salvar_no_banco).execute()
                 
-            st.write("💾 **Vínculos persistidos com sucesso nas tabelas do Supabase!**")
+            # 🚨 3. ATUALIZA O STATUS DA RM PARA 3 NA TABELA api_rm
+            # Nota: Se a coluna de identificação na tabela api_rm não for "id", mude para o nome correto (ex: "n_rm")
+            supabase.table("api_rm").update({"status_rm": 3}).eq("id", int(num_rm)).execute()
+            
+            st.write("💾 **Vínculos persistidos e status_rm atualizado para 3 com sucesso na tabela api_rm!**")
             
             # Efeito visual de comemoração no Streamlit
             st.balloons()
