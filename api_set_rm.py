@@ -283,8 +283,6 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         
     else:
         # Se chegou aqui, 100% dos itens entraram na Azure com sucesso! (COMMIT)
-        st.success("🎉 Todos os itens foram aceitos pela Azure! Salvando dados no banco corporativo...")
-        
         try:
             # 1. Salva o Cabeçalho na tabela api_integracao_sucesso
             dados_historico = {
@@ -299,28 +297,20 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
             if itens_para_salvar_no_banco:
                 supabase.table("api_integracao_itens").insert(itens_para_salvar_no_banco).execute()
                 
-            # 🚨 3. ATUALIZA O STATUS DA RM PARA 3 NA TABELA api_rm
-            # Nota: Se a coluna de identificação na tabela api_rm não for "id", mude para o nome correto (ex: "n_rm")
+            # 3. Atualiza o status na tabela api_rm
             supabase.table("api_rm").update({"status_rm": 3}).eq("id", int(num_rm)).execute()
             
-            st.write("💾 **Vínculos persistidos e status_rm atualizado para 3 com sucesso na tabela api_rm!**")
-            
-            # Efeito visual de comemoração no Streamlit
-            st.balloons()
-            st.success(f"RM {num_rm} integrada com sucesso! Redirecionando...")
-            
-            # Limpa o DataFrame da sessão para descarregar a planilha da tela
-            if "df_itens_rm" in st.session_state:
-                del st.session_state["df_itens_rm"]
-            
-            # Altera para a tela de listagem de RMs
-            st.session_state.tela_atual = "02 Listar Requisição de Material"
-            
-            # Força o Streamlit a atualizar as telas instantaneamente
-            st.rerun()
+            # Retorna os dados para a tela exibir no pop-up
+            return {
+                "sucesso": True,
+                "req_id": req_id,
+                "sequencial": num_sequencial,
+                "total_itens": len(itens_para_salvar_no_banco),
+                "mensagens": f"🎉 RM {num_rm} integrada com sucesso!"
+            }
             
         except Exception as e_banco:
             return {
                 "sucesso": False,
-                "mensagens": f"❌ Erro gravíssimo ao salvar dados finais no banco (Azure OK, Banco Falhou): {e_banco}"
+                "mensagens": f"❌ Erro ao salvar dados finais no banco: {e_banco}"
             }
