@@ -4,6 +4,7 @@ import os
 import sys
 import pandas as pd
 from supabase import create_client
+from datetime import datetime
 
 def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     """
