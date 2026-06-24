@@ -297,8 +297,8 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
             if itens_para_salvar_no_banco:
                 supabase.table("api_integracao_itens").insert(itens_para_salvar_no_banco).execute()
                 
-            # 3. Atualiza o status na tabela api_rm
-            supabase.table("api_rm").update({"status_rm": 3}).eq("id", int(num_rm)).execute()
+            # 🚨 3. CORREÇÃO CRÍTICA: Altera o filtro de 'id' para 'n_rm' conforme o padrão da tabela api_rm
+            supabase.table("api_rm").update({"status_rm": 3}).eq("n_rm", int(num_rm)).execute()
             
             # Retorna os dados para a tela exibir no pop-up
             return {
@@ -312,5 +312,6 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         except Exception as e_banco:
             return {
                 "sucesso": False,
-                "mensagens": f"❌ Erro ao salvar dados finais no banco: {e_banco}"
+                "mensagens": f"❌ Erro gravíssimo ao salvar dados finais no banco (Azure OK, Banco Falhou): {e_banco}"
             }
+
