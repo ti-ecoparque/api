@@ -59,14 +59,16 @@ with st.spinner("Carregando RMs pendentes..."):
             data_inicio = st.session_state.filtro_datas_input[0].strftime("%Y-%m-%d")
             data_fim = st.session_state.filtro_datas_input[1].strftime("%Y-%m-%d")
             
-            query_rm = query_rm.gte("data_necessidade", data_inicio).lte("data_necessidade", data_fim)
+            # CORREÇÃO DA BUSCA: Garante a comparação correta ignorando o fuso horário (T00:00:00)
+            query_rm = query_rm.gte("data_necessidade", f"{data_inicio}T00:00:00+00:00")\
+                               .lte("data_necessidade", f"{data_fim}T23:59:59+00:00")
+                               
         elif isinstance(st.session_state.filtro_datas_input, (list, tuple)) and len(st.session_state.filtro_datas_input) == 1:
             st.info("💡 Selecione a data final no calendário para ativar o filtro de período.")
             
         res_rm = query_rm.execute()
         dados_rm = res_rm.data
         
-        # Traz os campos t_item e m_descricao_do_item da lista mestra para o LOG
         res_materiais = supabase.table("api_materiais").select("m_coditem, t_item, m_descricao_do_item").execute()
         dados_materiais = res_materiais.data
         
@@ -81,12 +83,19 @@ if dados_rm:
     df_rm = pd.DataFrame(dados_rm)
     df_mat = pd.DataFrame(dados_materiais)
     
-    # Força a padronização de tipos primitivos inteiros
+    # CORREÇÃO DO FORMATO DE DATA BRASILEIRO (DD/MM/YYYY)
+    if "data_necessidade" in df_rm.columns:
+        # Converte a coluna para o tipo data do Pandas de forma segura e formata no padrão brasileiro
+        df_rm["data_necessidade_br"] = pd.to_datetime(df_rm["data_necessidade"], errors="coerce").dt.strftime("%d/%m/%Y")
+        # Mantém "N/A" ou vazio caso a data original seja inválida ou nula
+        df_rm["data_necessidade_br"] = df_rm["data_necessidade_br"].fillna("---")
+    else:
+        df_rm["data_necessidade_br"] = "---"
+
     df_rm["cod_mega"] = pd.to_numeric(df_rm["cod_mega"], errors="coerce").astype("Int64")
     if not df_mat.empty:
         df_mat["m_coditem"] = pd.to_numeric(df_mat["m_coditem"], errors="coerce").astype("Int64")
     
-    # Realiza o Merge comparando cod_mega com m_coditem
     if not df_mat.empty:
         df_consolidado = pd.merge(df_rm, df_mat, left_on="cod_mega", right_on="m_coditem", how="left")
     else:
@@ -94,7 +103,6 @@ if dados_rm:
         df_consolidado["m_descricao_do_item"] = None
         df_consolidado["t_item"] = None
 
-    # Agrupa as RMs dinamicamente por número único presente
     rms_unicas = sorted(df_consolidado["n_rm"].dropna().unique())
     st.write(f"📊 Foram localizadas **{len(rms_unicas)}** RM(s) com itens pendentes.")
     
@@ -133,7 +141,7 @@ if dados_rm:
                     "Codigo do Mega": linha.get("cod_mega"),
                     "Descrição RM": linha.get("desc_item"),
                     "Qtd": linha.get("qtd_solicitada"),
-                    "Data Necessidade": linha.get("data_necessidade"),
+                    "Data Necessidade": linha.get("data_necessidade_br"), 
                     "Encontrado no Mestra?": achou,
                     "Descrição Mestra (De/Para)": linha.get("m_descricao_do_item") if achou == "SIM" else "---"
                 })
