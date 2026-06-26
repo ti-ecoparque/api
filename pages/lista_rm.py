@@ -54,9 +54,14 @@ with st.spinner("Carregando RMs pendentes..."):
     try:
         query_rm = supabase.table("api_rm").select("*").eq("status_rm", 1)
         
-        if len(st.session_state.filtro_datas_input) == 2:
-            query_rm = query_rm.gte("data_necessidade", st.session_state.filtro_datas_input.strftime("%Y-%m-%d"))\
-                               .lte("data_necessidade", st.session_state.filtro_datas_input.strftime("%Y-%m-%d"))
+        # Verifica se o usuário selecionou o período completo (Início e Fim)
+        if isinstance(st.session_state.filtro_datas_input, (list, tuple)) and len(st.session_state.filtro_datas_input) == 2:
+            data_inicio = st.session_state.filtro_datas_input[0].strftime("%Y-%m-%d")
+            data_fim = st.session_state.filtro_datas_input[1].strftime("%Y-%m-%d")
+            
+            query_rm = query_rm.gte("data_necessidade", data_inicio).lte("data_necessidade", data_fim)
+        elif isinstance(st.session_state.filtro_datas_input, (list, tuple)) and len(st.session_state.filtro_datas_input) == 1:
+            st.info("💡 Selecione a data final no calendário para ativar o filtro de período.")
             
         res_rm = query_rm.execute()
         dados_rm = res_rm.data
@@ -112,8 +117,6 @@ if dados_rm:
                 if achou == "NÃO":
                     contagem_bloqueados += 1
                 else:
-                    # 🔹 CORREÇÃO DE CHAVES DA TABELA CONSOLIDADA:
-                    # Mapeamento ajustado para ler as chaves corretas que o Pandas gerou na memória
                     lista_logs_para_salvar.append({
                         "id_api_rm": int(linha["id"]),
                         "n_rm": int(linha["n_rm"]),
@@ -159,24 +162,19 @@ if dados_rm:
                                 st.error("❌ **Falha Crítica de Persistência:** O LOG de segurança não pôde ser salvo!")
                                 st.stop()
                             
-                            # 🚨 PASSO 2: Altera o status_rm para 2 após garantir a gravação do LOG
-                            resposta_update = supabase.table("api_rm")\
-                                .update({"status_rm": 2})\
-                                .in_("id", ids_para_aprovar)\
+                            # 🚨 PASSO 2: Altera o status_rm para 2 após garantir a gravação do LOG (Sintaxe Corrigida)
+                            resposta_update = (
+                                supabase.table("api_rm")
+                                .update({"status_rm": 2})
+                                .in_("id", ids_para_aprovar)
                                 .execute()
+                            )
                             
                             if resposta_update.data:
                                 st.balloons()
                                 st.success(f"🎉 Perfeito! LOG gravado na tabela api_log_rm e RM {num_rm} aprovada para Status 2.")
                                 st.rerun()
-                                    
-                        except Exception as error_up:
-                            st.error(f"❌ Erro crítico de comunicação transacional com o Supabase!")
-                            with st.expander("Ver erro técnico detalhado"):
-                                st.code(str(error_up))
-                            st.stop()
-            else:
-                st.error(f"❌ **Aprovação Bloqueada:** Existem **{contagem_bloqueados}** item(ns) pendentes no De/Para.")
-                st.button(f"🔒 RM {num_rm} Bloqueada ({contagem_bloqueados} pendências)", key=f"btn_bloqueado_{num_rm}", disabled=True, use_container_width=True)
+                        except Exception as e_banco:
+                            st.error(f"Erro transacional ao atualizar tabelas: {e_banco}")
 else:
     st.info("Nenhuma requisição pendente (Status 1) foi localizada no banco.")
