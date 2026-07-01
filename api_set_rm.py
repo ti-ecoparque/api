@@ -24,7 +24,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     # ==========================================================
-    # 🚨 1. VALIDAÇÃO ANTI-DUPLICIDADE (SUPABASE)
+    # 1. VALIDAÇÃO ANTI-DUPLICIDADE (SUPABASE)
     # ==========================================================
     st.info("🔍 Verificando se a RM já foi integrada anteriormente no banco de dados...")
     try:
@@ -47,14 +47,14 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     except Exception as e:
         return {
             "sucesso": False,
-            "mensagens": f"❌ Erro ao validar duplicidade de RM na tabela do Supabase: {e}"
+            "mensagens": f"❌ Erro ao validar duplicidade de RM na tabela do BD: {e}"
         }
 
     st.success("✔️ Validação de duplicidade OK! Esta RM é nova e pode ser integrada.")
     st.info("🔍 Iniciando pré-validação de consistência com a API da Azure...")
 
     # ==========================================================
-    # 🚨 FASE 0: BUSCA E VALIDAÇÃO DOS PRODUTOS VIVOS NA AZURE
+    # FASE 0: BUSCA E VALIDAÇÃO DOS PRODUTOS VIVOS NA AZURE
     # ==========================================================
     url_produtos_azure = obter_url_azure("listar_produtos")
     headers = {
@@ -107,7 +107,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
     st.success("✔️ Pré-validação concluída! 100% dos produtos constam como válidos e ativos na Azure.")
 
     # ==========================================================
-    # 🏗️ 2. MONTAGEM DO CABEÇALHO CORRIGIDO (MAP_CONFIG)
+    # 2. MONTAGEM DO CABEÇALHO CORRIGIDO (MAP_CONFIG)
     # ==========================================================
     primeira_linha = df_itens_rm.iloc[0]
     cod_filial = int(primeira_linha.get("enterpriseId")) if pd.notna(primeira_linha.get("enterpriseId")) else 102
@@ -203,7 +203,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
 
 
     # ==========================================================
-    # 📥 3. CHAMADA HTTP 2: INSERÇÃO DOS ITENS FILHOS
+    # 3. CHAMADA HTTP 2: INSERÇÃO DOS ITENS FILHOS
     # ==========================================================
     url_item = obter_url_azure("salvar_item_filho")
     total_linhas = len(df_itens_rm)
@@ -255,7 +255,7 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
 
 
     # ==========================================================
-    # 🔄 4. APLICAÇÃO DA REGRA TUDO OU NADA (ROLLBACK / COMMIT)
+    # 4. APLICAÇÃO DA REGRA TUDO OU NADA (ROLLBACK / COMMIT)
     # ==========================================================
     if processo_falhou:
         st.warning("⚠️ **Falha detectada durante o envio dos itens! Ativando Rollback...**")
@@ -312,6 +312,6 @@ def processar_e_enviar_api_externa(num_rm, df_itens_rm, token_autenticado):
         except Exception as e_banco:
             return {
                 "sucesso": False,
-                "mensagens": f"❌ Erro gravíssimo ao salvar dados finais no banco (Azure OK, Banco Falhou): {e_banco}"
+                "mensagens": f"❌ Erro ao salvar dados finais no banco (Azure OK, Banco Falhou): {e_banco}"
             }
 

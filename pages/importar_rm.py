@@ -19,7 +19,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets.get("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    st.error("Erro: Credenciais do Supabase não configuradas nos Secrets.")
+    st.error("Erro: Credenciais do BD não configuradas nos Secrets.")
     st.stop()
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -38,7 +38,7 @@ def mostrar_resumo_sucesso(num_rm, req_id, sequencial, total_itens):
         f"* 🆔 **ID gerado na Azure:** `{req_id}`\n"
         f"* 🔢 **Nº Sequencial Azure:** `{sequencial}`\n"
         f"* 📦 **Total de Itens Sincronizados:** `{total_itens} item(ns)`\n\n"
-        f"Os registros foram salvos no Supabase e o status da RM mudou para integrado."
+        f"Os registros foram salvos no BD e o status da RM mudou para integrado."
     )
     
     st.write("Clique no botão abaixo para concluir e retornar à listagem.")
@@ -57,7 +57,7 @@ def mostrar_resumo_sucesso(num_rm, req_id, sequencial, total_itens):
 st.divider()
 
 # REQUISIÇÃO DOS DADOS (STATUS_RM == 2)
-with st.spinner("Buscando requisições aprovadas na fila (Status 2)..."):
+with st.spinner("Buscando requisições aprovadas na fila (Status 2 Pendente de Importação)..."):
     try:
         resposta_rm = supabase.table("api_rm").select("*").eq("status_rm", 2).execute()
         dados_fila = resposta_rm.data
@@ -65,7 +65,7 @@ with st.spinner("Buscando requisições aprovadas na fila (Status 2)..."):
         resposta_materiais = supabase.table("api_materiais").select("m_coditem, t_id, t_item").execute()
         dados_materiais = resposta_materiais.data
     except Exception as e:
-        st.error(f"Erro ao consultar a fila no Supabase: {e}")
+        st.error(f"Erro ao consultar a fila no BD: {e}")
         dados_fila, dados_materiais = [], []
         
 # PROCESSAMENTO DOS DADOS COM PANDAS
@@ -143,4 +143,4 @@ if dados_fila:
                                 st.code(resultado.get("detalhes"))
 
 else:
-    st.info("✨ Tudo em dia! Nenhuma requisição com Status 2 localizada na fila de integração.")
+    st.info("✨ Tudo em dia! Nenhuma requisição com Status Pendente localizada na fila de integração.")

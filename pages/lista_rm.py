@@ -16,7 +16,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets.get("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    st.error("Erro: Credenciais do Supabase não configuradas nos Secrets.")
+    st.error("Erro: Credenciais do BD não configuradas nos Secrets.")
     st.stop()
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -180,7 +180,7 @@ if dados_rm:
                             
                             if resposta_update.data:
                                 st.balloons()
-                                st.success(f"🎉 Perfeito! LOG gravado na tabela api_log_rm e RM {num_rm} aprovada para Status 2.")
+                                st.success(f"🎉 Perfeito! LOG gravado, RM {num_rm} aprovada para Status 2 Aguardando Integração na API Externa.")
                                 st.rerun()
                         except Exception as e_banco:
                             st.error(f"Erro transacional ao atualizar tabelas: {e_banco}")

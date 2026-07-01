@@ -17,7 +17,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets.get("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    st.error("Erro: Credenciais do Supabase não configuradas nos Secrets.")
+    st.error("Erro: Credenciais do BD não configuradas nos Secrets.")
     st.stop()
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -89,7 +89,7 @@ if arquivos_enviados:
                 st.dataframe(df_tratado[['N_RM', 'SEQ_ITEM', 'DESC_ITEM', 'QTD_SOLICITADA']].head(5))
                 
                 # Botão para disparar a importação exclusiva desta planilha carregada
-                if st.button(f"🚀 Importar {arquivo.name} para o Supabase", key=arquivo.name):
+                if st.button(f"🚀 Importar {arquivo.name} para o BD", key=arquivo.name):
                     salvos = 0
                     ignorados = 0
                     
@@ -136,7 +136,7 @@ if arquivos_enviados:
                     st.info(f"✔️ Novos itens salvos: **{salvos}**")
                     
                     if ignorados > 0:
-                        st.warning(f"⚠️ Itens descartados por já existirem no banco: **{ignorados}**")
+                        st.warning(f"⚠️ Itens descartados por já existirem **{ignorados}**")
                         
         except Exception as e:
             st.error(f"Falha ao processar a leitura do Excel {arquivo.name}: {e}")
