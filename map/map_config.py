@@ -7,26 +7,46 @@ MAP_EMPRESAS = {
         "endereco": "Area Fazenda Andrada, Br 277 0 - CASCAVEL (PR) - CEP: 85820-899"
     },
     100: {
-        "id": 28,
+        "id": 28, #Matriz
         "nome": "ECOPARQUE BAIRROS INTEGRADOS LTDA F001",
-        "endereco": "Endereço da filial 100"
+        "endereco": "BLOCO 04 BRCAO 401 ANDAR 02 SALA 01 625 - SÃO JOSÉ DOS PINHAIS (PR) - CEP: 83070-152"
     },
-    104: {
-        "id": 39,
+    101: {
+        "id": 39, # Obra
         "nome": "ECOPARQUE BAIRROS INTEGRADOS LTDA F002",
-        "endereco": "Endereço da filial 104"
+        "endereco": "PAVLH 13 E 16 0 - CASCAVEL (PR) - CEP: 85820-899"
+    },
+    110: {
+        "id": 344,
+        "nome": "BURITICUPU SPE LTDA",
+        "endereco": "RODOVIA BR-277 0 KM 600 - REFERENCIA: ACESSO ENTRE AS EMPRESAS: ARCELORMITTAL - CASCAVEL (PR) - CEP: 85804-200"
+    },
+    4228: {
+        "id": 375,
+        "nome": "DONA IRENE SPE LTDA",
+        "endereco": "R AREA RURAL 0 QUADRA RUA PROF. PAULO MARQ - CASCAVEL (PR) - CEP: 85820-899"
     }
+    
+    
 }
 
 # MAP DE CENTRO DE CUSTO (USUÁRIO → CENTRO DE CUSTO)
 
+#{id: 3, text: "Administração"} {id: 4, text: "Estoque"} {id: 1, text: "Fábrica"} {id: 2, text: "Vendas"}
 # 1 Fabrica - 2 Vendas - 3 Administração - 4 Estoque 
 MAP_CENTRO_CUSTO = {
     55: {"id": 3, "descricao": "Administração"},        # Fabiana 
     53: {"id": 4, "descricao": "Estoque"},              # Paulo
     40: {"id": 3, "descricao": "Administração"},        # Adrielle
-    21: {"id": 3, "descricao": "Administração"},         # Jonatha
-    36: {"id": 3, "descricao": "Administração"} # PCP
+    21: {"id": 3, "descricao": "Administração"},        # Jonatha
+    36: {"id": 3, "descricao": "Administração"},        # PCP
+    64: {"id": 3, "descricao": "Administração"},        # Edinelson
+    32: {"id": 3, "descricao": "Administração"}, #DANI
+    33: {"id": 3, "descricao": "Administração"}, #Tereza
+    41: {"id": 3, "descricao": "Administração"}, #Natalia
+    46: {"id": 3, "descricao": "Administração"}, #Cibeli
+    48: {"id": 4, "descricao": "Administração"}, #Bruna
+    62: {"id": 3, "descricao": "Administração"}  #Karolina
 }
 
 # FUNÇÕES AUXILIARES
